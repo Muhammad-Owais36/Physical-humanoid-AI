@@ -1,0 +1,953 @@
+---
+title: ROS 2 Practical Implementation for Humanoid Robots
+sidebar_position: 3
+---
+
+# ROS 2 Practical Implementation for Humanoid Robots
+
+## Learning Objectives
+
+By the end of this chapter, you will be able to:
+- Implement a complete humanoid robot control system using ROS 2
+- Integrate multiple ROS 2 packages for coordinated humanoid behavior
+- Deploy ROS 2 nodes on physical humanoid hardware
+- Debug and optimize ROS 2 systems for humanoid robotics
+- Create launch files for complex humanoid robot configurations
+
+## Prerequisites
+
+Before starting this chapter, you should have:
+- Mastery of basic and advanced ROS 2 concepts
+- Experience with ROS 2 development and debugging
+- Understanding of humanoid robot kinematics and dynamics
+- Access to a humanoid robot or simulation environment
+
+## Complete Humanoid Robot Control Architecture
+
+In this section, we'll build a complete ROS 2-based control system for a humanoid robot. This system will include:
+
+- Joint control and state management
+- Sensor integration and processing
+- High-level behavior coordination
+- Safety and monitoring systems
+
+### System Architecture Overview
+
+The humanoid robot control system consists of several interconnected subsystems:
+
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   Behavior      │    │   Motion         │    │   Perception    │
+│   Manager       │◄──►│   Planning       │◄──►│   & Control     │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+         │                       │                       │
+         ▼                       ▼                       ▼
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   Navigation    │    │   Balance        │    │   Whole-Body    │
+│   & Path Plan   │    │   Control        │    │   Controller    │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+         │                       │                       │
+         └───────────────────────┼───────────────────────┘
+                                 │
+                    ┌─────────────────┐
+                    │   Joint Level   │
+                    │   Controllers   │
+                    └─────────────────┘
+```
+
+### Core Package Structure
+
+First, let's create the package structure for our humanoid robot system:
+
+```bash
+mkdir -p ~/humanoid_robot_ws/src
+cd ~/humanoid_robot_ws/src
+
+# Create packages for each subsystem
+ros2 pkg create --build-type ament_python humanoid_bringup
+ros2 pkg create --build-type ament_python humanoid_control
+ros2 pkg create --build-type ament_python humanoid_description
+ros2 pkg create --build-type ament_python humanoid_navigation
+ros2 pkg create --build-type ament_python humanoid_perception
+```
+
+### Humanoid Description Package
+
+The `humanoid_description` package contains the URDF model of the robot:
+
+```xml
+<!-- humanoid_description/urdf/humanoid.urdf.xacro -->
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="humanoid_robot">
+
+  <!-- Include other xacro files -->
+  <xacro:include filename="$(find humanoid_description)/urdf/materials.xacro" />
+  <xacro:include filename="$(find humanoid_description)/urdf/transmission.xacro" />
+  <xacro:include filename="$(find humanoid_description)/urdf/gazebo.xacro" />
+
+  <!-- Base link -->
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <box size="0.3 0.2 0.1"/>
+      </geometry>
+      <material name="blue"/>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="0.3 0.2 0.1"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="10.0"/>
+      <inertia ixx="1.0" ixy="0.0" ixz="0.0" iyy="1.0" iyz="0.0" izz="1.0"/>
+    </inertial>
+  </link>
+
+  <!-- Torso -->
+  <joint name="torso_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="torso"/>
+    <origin xyz="0 0 0.5" rpy="0 0 0"/>
+  </joint>
+
+  <link name="torso">
+    <visual>
+      <geometry>
+        <box size="0.2 0.15 0.4"/>
+      </geometry>
+      <material name="white"/>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="0.2 0.15 0.4"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="5.0"/>
+      <inertia ixx="0.1" ixy="0.0" ixz="0.0" iyy="0.1" iyz="0.0" izz="0.1"/>
+    </inertial>
+  </link>
+
+  <!-- Head -->
+  <joint name="head_joint" type="revolute">
+    <parent link="torso"/>
+    <child link="head"/>
+    <origin xyz="0 0 0.25" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.57" upper="1.57" effort="100" velocity="1.0"/>
+  </joint>
+
+  <link name="head">
+    <visual>
+      <geometry>
+        <sphere radius="0.1"/>
+      </geometry>
+      <material name="white"/>
+    </visual>
+    <collision>
+      <geometry>
+        <sphere radius="0.1"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="1.0"/>
+      <inertia ixx="0.01" ixy="0.0" ixz="0.0" iyy="0.01" iyz="0.0" izz="0.01"/>
+    </inertial>
+  </link>
+
+  <!-- Left arm -->
+  <joint name="left_shoulder_joint" type="revolute">
+    <parent link="torso"/>
+    <child link="left_upper_arm"/>
+    <origin xyz="0.15 0 0.1" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.57" upper="1.57" effort="100" velocity="1.0"/>
+  </joint>
+
+  <link name="left_upper_arm">
+    <visual>
+      <geometry>
+        <cylinder length="0.3" radius="0.05"/>
+      </geometry>
+      <material name="white"/>
+    </visual>
+    <collision>
+      <geometry>
+        <cylinder length="0.3" radius="0.05"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="1.0"/>
+      <inertia ixx="0.01" ixy="0.0" ixz="0.0" iyy="0.01" iyz="0.0" izz="0.01"/>
+    </inertial>
+  </link>
+
+  <!-- Additional joints and links for arms, legs, etc. would continue here -->
+
+</robot>
+```
+
+### Joint State Publisher and Robot State Publisher
+
+Create a launch file to start the necessary publishers:
+
+```python
+# humanoid_description/launch/description.launch.py
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
+import os
+from ament_index_python.packages import get_package_share_directory
+
+def generate_launch_description():
+    # Declare arguments
+    declared_arguments = []
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "use_sim_time",
+            default_value="false",
+            description="If true, use simulated time",
+        )
+    )
+
+    # Get configurations
+    use_sim_time = LaunchConfiguration("use_sim_time")
+
+    # Get URDF file path
+    urdf_file = os.path.join(
+        get_package_share_directory("humanoid_description"),
+        "urdf",
+        "humanoid.urdf.xacro"
+    )
+
+    # Read URDF file
+    with open(urdf_file, 'r') as infp:
+        robot_description_content = infp.read()
+
+    robot_description = {"robot_description": robot_description_content}
+
+    # Robot state publisher
+    robot_state_publisher = Node(
+        package="robot_state_publisher",
+        executable="robot_state_publisher",
+        output="both",
+        parameters=[robot_description, {"use_sim_time": use_sim_time}],
+    )
+
+    # Joint state publisher
+    joint_state_publisher = Node(
+        package="joint_state_publisher",
+        executable="joint_state_publisher",
+        output="both",
+        parameters=[{"use_sim_time": use_sim_time}],
+    )
+
+    # Joint state publisher GUI (for manual testing)
+    joint_state_publisher_gui = Node(
+        package="joint_state_publisher_gui",
+        executable="joint_state_publisher_gui",
+        output="both",
+        parameters=[{"use_sim_time": use_sim_time}],
+    )
+
+    return LaunchDescription(
+        declared_arguments +
+        [
+            robot_state_publisher,
+            joint_state_publisher,
+            joint_state_publisher_gui,
+        ]
+    )
+```
+
+### Humanoid Control Package
+
+Now let's implement the core control system. We'll start with a whole-body controller that manages the humanoid's joints:
+
+```python
+# humanoid_control/humanoid_control/whole_body_controller.py
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
+from sensor_msgs.msg import JointState
+from geometry_msgs.msg import Twist
+from builtin_interfaces.msg import Duration
+import numpy as np
+from std_msgs.msg import Float64MultiArray
+
+class WholeBodyController(Node):
+    def __init__(self):
+        super().__init__('whole_body_controller')
+
+        # QoS profile for real-time control
+        control_qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.VOLATILE
+        )
+
+        # Publishers for joint commands
+        self.joint_cmd_pub = self.create_publisher(
+            JointState,
+            '/joint_commands',
+            control_qos
+        )
+
+        # Subscriber for joint states
+        self.joint_state_sub = self.create_subscription(
+            JointState,
+            '/joint_states',
+            self.joint_state_callback,
+            control_qos
+        )
+
+        # Subscriber for velocity commands
+        self.cmd_vel_sub = self.create_subscription(
+            Twist,
+            '/cmd_vel',
+            self.cmd_vel_callback,
+            10
+        )
+
+        # Timer for control loop (100Hz)
+        self.control_timer = self.create_timer(0.01, self.control_loop)
+
+        # Initialize joint states
+        self.current_joint_positions = {}
+        self.current_joint_velocities = {}
+        self.current_joint_efforts = {}
+
+        # Control parameters
+        self.cmd_vel = Twist()
+        self.target_positions = {}
+        self.control_gains = self.initialize_control_gains()
+
+        self.get_logger().info('Whole Body Controller initialized')
+
+    def initialize_control_gains(self):
+        """Initialize PID gains for each joint"""
+        gains = {}
+        joint_names = [
+            'head_joint', 'left_shoulder_joint', 'left_elbow_joint',
+            'right_shoulder_joint', 'right_elbow_joint', 'left_hip_joint',
+            'left_knee_joint', 'left_ankle_joint', 'right_hip_joint',
+            'right_knee_joint', 'right_ankle_joint'
+        ]
+
+        for joint_name in joint_names:
+            gains[joint_name] = {
+                'kp': 100.0,  # Proportional gain
+                'ki': 0.1,    # Integral gain
+                'kd': 10.0    # Derivative gain
+            }
+        return gains
+
+    def joint_state_callback(self, msg):
+        """Update current joint states"""
+        for i, name in enumerate(msg.name):
+            if i < len(msg.position):
+                self.current_joint_positions[name] = msg.position[i]
+            if i < len(msg.velocity):
+                self.current_joint_velocities[name] = msg.velocity[i]
+            if i < len(msg.effort):
+                self.current_joint_efforts[name] = msg.effort[i]
+
+    def cmd_vel_callback(self, msg):
+        """Update velocity command"""
+        self.cmd_vel = msg
+
+    def control_loop(self):
+        """Main control loop"""
+        # Calculate desired joint positions based on cmd_vel and current state
+        desired_positions = self.calculate_desired_positions()
+
+        # Create joint command message
+        cmd_msg = JointState()
+        cmd_msg.header.stamp = self.get_clock().now().to_msg()
+        cmd_msg.name = list(desired_positions.keys())
+        cmd_msg.position = list(desired_positions.values())
+
+        # Publish joint commands
+        self.joint_cmd_pub.publish(cmd_msg)
+
+    def calculate_desired_positions(self):
+        """Calculate desired joint positions based on current state and commands"""
+        desired_positions = {}
+
+        # Initialize with current positions
+        for joint_name in self.current_joint_positions:
+            desired_positions[joint_name] = self.current_joint_positions[joint_name]
+
+        # Apply walking gait pattern based on cmd_vel
+        if abs(self.cmd_vel.linear.x) > 0.01 or abs(self.cmd_vel.angular.z) > 0.01:
+            # Calculate walking pattern (simplified)
+            time_in_cycle = (self.get_clock().now().nanoseconds / 1e9) % 2.0  # 2 second cycle
+
+            # Apply walking gait to leg joints
+            left_leg_phase = np.sin(2 * np.pi * time_in_cycle / 2.0)
+            right_leg_phase = np.sin(2 * np.pi * time_in_cycle / 2.0 + np.pi)
+
+            # Update leg joint positions based on gait
+            if 'left_hip_joint' in desired_positions:
+                desired_positions['left_hip_joint'] += 0.1 * left_leg_phase
+            if 'right_hip_joint' in desired_positions:
+                desired_positions['right_hip_joint'] += 0.1 * right_leg_phase
+            if 'left_knee_joint' in desired_positions:
+                desired_positions['left_knee_joint'] += 0.05 * left_leg_phase
+            if 'right_knee_joint' in desired_positions:
+                desired_positions['right_knee_joint'] += 0.05 * right_leg_phase
+
+        return desired_positions
+
+def main(args=None):
+    rclpy.init(args=args)
+    controller = WholeBodyController()
+
+    try:
+        rclpy.spin(controller)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        controller.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+### Balance Controller
+
+A critical component for humanoid robots is the balance controller:
+
+```python
+# humanoid_control/humanoid_control/balance_controller.py
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Imu, JointState
+from geometry_msgs.msg import Vector3, Point
+from std_msgs.msg import Float64
+import numpy as np
+
+class BalanceController(Node):
+    def __init__(self):
+        super().__init__('balance_controller')
+
+        # Subscribers
+        self.imu_sub = self.create_subscription(
+            Imu, '/imu/data', self.imu_callback, 10
+        )
+        self.joint_state_sub = self.create_subscription(
+            JointState, '/joint_states', self.joint_state_callback, 10
+        )
+
+        # Publishers
+        self.balance_error_pub = self.create_publisher(
+            Vector3, '/balance_error', 10
+        )
+        self.com_adjustment_pub = self.create_publisher(
+            JointState, '/com_adjustment_commands', 10
+        )
+
+        # Timer for balance control (200Hz)
+        self.balance_timer = self.create_timer(0.005, self.balance_control)
+
+        # Initialize state
+        self.current_imu = Imu()
+        self.current_joint_state = JointState()
+        self.center_of_mass = Point()
+        self.zero_moment_point = Point()
+        self.balance_error = Vector3()
+
+        # Balance control parameters
+        self.balance_gains = {
+            'kp': 10.0,  # Position gain
+            'kd': 1.0,   # Damping gain
+        }
+
+        self.get_logger().info('Balance Controller initialized')
+
+    def imu_callback(self, msg):
+        """Update IMU data"""
+        self.current_imu = msg
+
+    def joint_state_callback(self, msg):
+        """Update joint state"""
+        self.current_joint_state = msg
+        self.update_center_of_mass()
+
+    def update_center_of_mass(self):
+        """Calculate center of mass from joint positions (simplified)"""
+        # This is a simplified calculation - in practice, you'd use full kinematics
+        # For now, just use IMU orientation as a proxy for balance state
+        orientation = self.current_imu.orientation
+        # Convert quaternion to roll/pitch for balance error
+        roll = np.arctan2(
+            2.0 * (orientation.w * orientation.x + orientation.y * orientation.z),
+            1.0 - 2.0 * (orientation.x * orientation.x + orientation.y * orientation.y)
+        )
+        pitch = np.arcsin(
+            2.0 * (orientation.w * orientation.y - orientation.z * orientation.x)
+        )
+
+        self.balance_error.x = roll
+        self.balance_error.y = pitch
+        self.balance_error.z = 0.0  # Height is typically controlled separately
+
+    def balance_control(self):
+        """Main balance control loop"""
+        # Calculate balance error
+        error = np.array([self.balance_error.x, self.balance_error.y])
+
+        # Apply PD control
+        correction = -self.balance_gains['kp'] * error - self.balance_gains['kd'] * np.zeros_like(error)
+
+        # Publish balance error for monitoring
+        self.balance_error_pub.publish(self.balance_error)
+
+        # Generate CoM adjustment commands
+        if np.linalg.norm(correction) > 0.01:  # Only if significant correction needed
+            cmd_msg = JointState()
+            cmd_msg.header.stamp = self.get_clock().now().to_msg()
+            cmd_msg.name = ['left_ankle_joint', 'right_ankle_joint', 'torso_joint']
+            cmd_msg.position = [correction[0], correction[0], correction[1]]
+
+            self.com_adjustment_pub.publish(cmd_msg)
+
+def main(args=None):
+    rclpy.init(args=args)
+    controller = BalanceController()
+
+    try:
+        rclpy.spin(controller)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        controller.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+### Launch File for Complete System
+
+Create a comprehensive launch file that starts all necessary nodes:
+
+```python
+# humanoid_control/launch/humanoid_control.launch.py
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch_ros.actions import Node
+from launch_ros.substitutions import FindPackageShare
+import os
+from ament_index_python.packages import get_package_share_directory
+
+def generate_launch_description():
+    # Declare arguments
+    declared_arguments = []
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "use_sim_time",
+            default_value="false",
+            description="If true, use simulated time",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "robot_description_file",
+            default_value="humanoid.urdf.xacro",
+            description="Robot description file",
+        )
+    )
+
+    # Get configurations
+    use_sim_time = LaunchConfiguration("use_sim_time")
+    robot_description_file = LaunchConfiguration("robot_description_file")
+
+    # Robot description
+    robot_description_path = PathJoinSubstitution(
+        [FindPackageShare("humanoid_description"), "urdf", robot_description_file]
+    )
+
+    # Whole body controller node
+    whole_body_controller = Node(
+        package="humanoid_control",
+        executable="whole_body_controller",
+        name="whole_body_controller",
+        parameters=[{"use_sim_time": use_sim_time}],
+        output="screen",
+    )
+
+    # Balance controller node
+    balance_controller = Node(
+        package="humanoid_control",
+        executable="balance_controller",
+        name="balance_controller",
+        parameters=[{"use_sim_time": use_sim_time}],
+        output="screen",
+    )
+
+    # Joint trajectory controller (for smooth motion)
+    joint_trajectory_controller = Node(
+        package="controller_manager",
+        executable="ros2_control_node",
+        parameters=[
+            robot_description_path,
+            {"use_sim_time": use_sim_time},
+            os.path.join(
+                get_package_share_directory("humanoid_control"),
+                "config",
+                "controllers.yaml"
+            )
+        ],
+        output="screen",
+    )
+
+    # Robot state publisher
+    robot_state_publisher = Node(
+        package="robot_state_publisher",
+        executable="robot_state_publisher",
+        parameters=[
+            {"robot_description": PathJoinSubstitution(
+                [FindPackageShare("humanoid_description"), "urdf", robot_description_file]
+            )},
+            {"use_sim_time": use_sim_time}
+        ],
+        output="screen",
+    )
+
+    return LaunchDescription(
+        declared_arguments +
+        [
+            whole_body_controller,
+            balance_controller,
+            joint_trajectory_controller,
+            robot_state_publisher,
+        ]
+    )
+```
+
+### Configuration Files
+
+Create a configuration file for controllers:
+
+```yaml
+# humanoid_control/config/controllers.yaml
+controller_manager:
+  ros__parameters:
+    update_rate: 100  # Hz
+
+    whole_body_controller:
+      type: humanoid_control/WholeBodyController
+
+    balance_controller:
+      type: humanoid_control/BalanceController
+
+whole_body_controller:
+  ros__parameters:
+    joints:
+      - head_joint
+      - left_shoulder_joint
+      - left_elbow_joint
+      - right_shoulder_joint
+      - right_elbow_joint
+      - left_hip_joint
+      - left_knee_joint
+      - left_ankle_joint
+      - right_hip_joint
+      - right_knee_joint
+      - right_ankle_joint
+
+balance_controller:
+  ros__parameters:
+    kp: 10.0
+    kd: 1.0
+    max_correction: 0.1
+```
+
+## Hardware Integration
+
+For deploying on physical hardware, you'll need to implement a hardware interface:
+
+```python
+# humanoid_control/hardware_interface/humanoid_hardware_interface.py
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import QoSProfile
+from sensor_msgs.msg import JointState
+from control_msgs.msg import JointTrajectoryControllerState
+import threading
+import time
+
+class HumanoidHardwareInterface(Node):
+    def __init__(self):
+        super().__init__('humanoid_hardware_interface')
+
+        # Publishers and subscribers
+        self.joint_state_pub = self.create_publisher(
+            JointState, '/joint_states', QoSProfile(depth=1)
+        )
+        self.controller_state_sub = self.create_subscription(
+            JointTrajectoryControllerState,
+            '/joint_trajectory_controller/state',
+            self.controller_state_callback,
+            QoSProfile(depth=1)
+        )
+
+        # Timer for hardware interface (1kHz)
+        self.hw_timer = self.create_timer(0.001, self.hw_interface_loop)
+
+        # Hardware interface state
+        self.joint_positions = {}
+        self.joint_velocities = {}
+        self.joint_efforts = {}
+        self.command_positions = {}
+
+        # Initialize joint names (in real hardware, this would come from URDF)
+        self.joint_names = [
+            'head_joint', 'left_shoulder_joint', 'left_elbow_joint',
+            'right_shoulder_joint', 'right_elbow_joint', 'left_hip_joint',
+            'left_knee_joint', 'left_ankle_joint', 'right_hip_joint',
+            'right_knee_joint', 'right_ankle_joint'
+        ]
+
+        for name in self.joint_names:
+            self.joint_positions[name] = 0.0
+            self.joint_velocities[name] = 0.0
+            self.joint_efforts[name] = 0.0
+            self.command_positions[name] = 0.0
+
+        # Initialize hardware connection
+        self.initialize_hardware()
+
+        self.get_logger().info('Humanoid Hardware Interface initialized')
+
+    def initialize_hardware(self):
+        """Initialize connection to physical hardware"""
+        # In a real implementation, this would:
+        # - Connect to motor controllers via CAN, Ethernet, or serial
+        # - Configure motor parameters
+        # - Verify all joints are responding
+        # - Calibrate joint positions
+        self.get_logger().info('Hardware initialization would occur here in real implementation')
+
+    def controller_state_callback(self, msg):
+        """Receive commands from controllers"""
+        for i, name in enumerate(msg.joint_names):
+            if i < len(msg.desired.positions):
+                self.command_positions[name] = msg.desired.positions[i]
+
+    def hw_interface_loop(self):
+        """Main hardware interface loop"""
+        # Read current joint states from hardware
+        self.read_hardware_states()
+
+        # Send commands to hardware
+        self.write_hardware_commands()
+
+        # Publish joint states
+        self.publish_joint_states()
+
+    def read_hardware_states(self):
+        """Read current states from physical hardware"""
+        # In real hardware, this would communicate with motor controllers
+        # to read actual joint positions, velocities, and efforts
+        # For simulation, we'll just update positions based on commands with some dynamics
+        dt = 0.001  # 1ms time step
+
+        for name in self.joint_names:
+            # Simple first-order dynamics for simulation
+            error = self.command_positions[name] - self.joint_positions[name]
+            self.joint_velocities[name] = error / dt * 0.1  # 10% of error per time step
+            self.joint_positions[name] += self.joint_velocities[name] * dt
+
+            # Simulate effort based on load
+            self.joint_efforts[name] = error * 100.0  # Simple proportional relationship
+
+    def write_hardware_commands(self):
+        """Send commands to physical hardware"""
+        # In real hardware, this would send commands to motor controllers
+        # For simulation, we just log the commands
+        self.get_logger().debug(f'Sending commands: {self.command_positions}')
+
+    def publish_joint_states(self):
+        """Publish current joint states"""
+        msg = JointState()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.name = self.joint_names
+        msg.position = [self.joint_positions[name] for name in self.joint_names]
+        msg.velocity = [self.joint_velocities[name] for name in self.joint_names]
+        msg.effort = [self.joint_efforts[name] for name in self.joint_names]
+
+        self.joint_state_pub.publish(msg)
+
+def main(args=None):
+    rclpy.init(args=args)
+    hw_interface = HumanoidHardwareInterface()
+
+    try:
+        rclpy.spin(hw_interface)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        hw_interface.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+## Debugging and Optimization
+
+### Performance Monitoring
+
+Create a performance monitoring node:
+
+```python
+# humanoid_control/utils/performance_monitor.py
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import Float64
+from builtin_interfaces.msg import Time
+import time
+
+class PerformanceMonitor(Node):
+    def __init__(self):
+        super().__init__('performance_monitor')
+
+        # Publishers for performance metrics
+        self.loop_time_pub = self.create_publisher(Float64, '/performance/loop_time', 10)
+        self.cpu_usage_pub = self.create_publisher(Float64, '/performance/cpu_usage', 10)
+
+        # Timer for monitoring (10Hz)
+        self.monitor_timer = self.create_timer(0.1, self.monitor_performance)
+
+        # Performance tracking
+        self.last_time = self.get_clock().now()
+
+        self.get_logger().info('Performance Monitor initialized')
+
+    def monitor_performance(self):
+        """Monitor system performance"""
+        current_time = self.get_clock().now()
+        loop_time = (current_time.nanoseconds - self.last_time.nanoseconds) / 1e9
+        self.last_time = current_time
+
+        # Publish loop time
+        loop_time_msg = Float64()
+        loop_time_msg.data = loop_time
+        self.loop_time_pub.publish(loop_time_msg)
+
+def main(args=None):
+    rclpy.init(args=args)
+    monitor = PerformanceMonitor()
+
+    try:
+        rclpy.spin(monitor)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        monitor.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+## Deployment and Testing
+
+### System Integration Test
+
+Create a comprehensive test to verify the entire system:
+
+```python
+# humanoid_control/test/system_integration_test.py
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import JointState
+from geometry_msgs.msg import Twist
+from std_msgs.msg import Bool
+import time
+import unittest
+from rclpy.qos import QoSProfile
+
+class TestHumanoidSystemIntegration(Node):
+    def __init__(self):
+        super().__init__('test_humanoid_system')
+
+        # Subscribers to monitor system state
+        self.joint_state_sub = self.create_subscription(
+            JointState, '/joint_states', self.joint_state_callback,
+            QoSProfile(depth=1)
+        )
+
+        # Publishers for testing
+        self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+
+        # Test state
+        self.received_joint_states = False
+        self.joint_state_msg = None
+
+    def joint_state_callback(self, msg):
+        """Receive joint states for verification"""
+        self.joint_state_msg = msg
+        self.received_joint_states = True
+
+    def test_basic_communication(self):
+        """Test that all subsystems are communicating"""
+        # Wait for joint states
+        timeout = time.time() + 5.0  # 5 second timeout
+        while not self.received_joint_states and time.time() < timeout:
+            rclpy.spin_once(self, timeout_sec=0.1)
+
+        # Verify we received joint states
+        assert self.received_joint_states, "Did not receive joint states within timeout"
+        assert self.joint_state_msg is not None, "Joint state message is None"
+        assert len(self.joint_state_msg.name) > 0, "No joint names in message"
+
+        self.get_logger().info(f"Received {len(self.joint_state_msg.name)} joints")
+        return True
+
+def main(args=None):
+    rclpy.init(args=args)
+    test_node = TestHumanoidSystemIntegration()
+
+    try:
+        success = test_node.test_basic_communication()
+        if success:
+            print("System integration test PASSED")
+        else:
+            print("System integration test FAILED")
+    except Exception as e:
+        print(f"System integration test FAILED with error: {e}")
+    finally:
+        test_node.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+## Summary
+
+This chapter provided a comprehensive implementation of a ROS 2-based humanoid robot control system. We covered:
+
+- Complete package structure for humanoid robotics
+- Integration of multiple ROS 2 packages for coordinated behavior
+- Hardware interface implementation for physical deployment
+- Performance monitoring and debugging techniques
+- System integration testing approaches
+
+The practical implementation demonstrates how all the concepts from previous chapters come together to create a functional humanoid robot control system using ROS 2.
+
+## Next Steps
+
+- Deploy the system on a physical humanoid robot or simulation environment
+- Extend the control system with additional capabilities (manipulation, perception)
+- Optimize performance for your specific hardware platform
+- Add safety features and emergency stop functionality
+- Integrate with higher-level planning and AI systems

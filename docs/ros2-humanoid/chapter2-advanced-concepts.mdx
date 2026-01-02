@@ -1,0 +1,435 @@
+---
+title: Advanced ROS 2 Concepts for Humanoid Robotics
+sidebar_position: 2
+---
+
+# Advanced ROS 2 Concepts for Humanoid Robotics
+
+## Learning Objectives
+
+By the end of this chapter, you will be able to:
+- Implement advanced communication patterns for humanoid robot control
+- Design and use custom message and service types
+- Apply lifecycle nodes for robust robot management
+- Implement parameter management for configurable humanoid behaviors
+- Utilize TF2 for coordinate frame management in humanoid systems
+- Understand real-time considerations for humanoid robot control
+
+## Prerequisites
+
+Before starting this chapter, you should have:
+- Understanding of basic ROS 2 concepts (topics, services, actions)
+- Experience with ROS 2 node creation and communication
+- Knowledge of basic humanoid robotics concepts
+- Familiarity with Python and/or C++ programming
+
+## Custom Message Types for Humanoid Robotics
+
+While ROS 2 provides standard message types, humanoid robots often require custom messages to represent specialized data. For example, a humanoid robot might need custom messages for:
+
+- Whole-body joint configurations
+- Balance and stability data
+- Humanoid-specific sensor arrays
+- Complex manipulation states
+
+### Creating Custom Messages
+
+Custom messages are defined using `.msg` files in a package's `msg/` directory:
+
+```text
+# msg/HumanoidJointState.msg
+Header header
+string[] name
+float64[] position
+float64[] velocity
+float64[] effort
+float64[] stiffness
+float64[] damping
+```
+
+```text
+# msg/BalanceState.msg
+Header header
+float64 center_of_mass_x
+float64 center_of_mass_y
+float64 center_of_mass_z
+float64 zero_moment_point_x
+float64 zero_moment_point_y
+float64[] support_polygon_x
+float64[] support_polygon_y
+bool is_balanced
+```
+
+The message definition follows a simple format: type and field name pairs, one per line. After defining messages, they must be added to the package's CMakeLists.txt and package.xml for proper generation.
+
+## Lifecycle Nodes for Humanoid Systems
+
+Humanoid robots require robust state management due to their complexity and safety considerations. Lifecycle nodes provide a structured approach to managing node states:
+
+- **Unconfigured**: Node loaded but not configured
+- **Inactive**: Configured but not active
+- **Active**: Fully operational
+- **Finalized**: Shutting down
+
+```python
+import rclpy
+from rclpy.lifecycle import LifecycleNode, LifecycleState, TransitionCallbackReturn
+from rclpy.lifecycle import Publisher
+from rclpy.qos import QoSProfile
+
+class HumanoidController(LifecycleNode):
+    def __init__(self):
+        super().__init__('humanoid_controller')
+        self.joint_publisher: Publisher = None
+
+    def on_configure(self, state: LifecycleState) -> TransitionCallbackReturn:
+        self.get_logger().info(f'Configuring {self.get_name()}')
+
+        # Create publishers, subscribers, services
+        self.joint_publisher = self.create_publisher(
+            JointState, 'joint_commands', 10
+        )
+
+        return TransitionCallbackReturn.SUCCESS
+
+    def on_activate(self, state: LifecycleState) -> TransitionCallbackReturn:
+        self.get_logger().info(f'Activating {self.get_name()}')
+
+        # Enable publishers
+        self.joint_publisher.on_activate()
+
+        return TransitionCallbackReturn.SUCCESS
+
+    def on_deactivate(self, state: LifecycleState) -> TransitionCallbackReturn:
+        self.get_logger().info(f'Deactivating {self.get_name()}')
+
+        # Disable publishers
+        self.joint_publisher.on_deactivate()
+
+        return TransitionCallbackReturn.SUCCESS
+
+    def on_cleanup(self, state: LifecycleState) -> TransitionCallbackReturn:
+        self.get_logger().info(f'Cleaning up {self.get_name()}')
+
+        # Destroy publishers, subscribers, etc.
+        self.joint_publisher.destroy()
+        self.joint_publisher = None
+
+        return TransitionCallbackReturn.SUCCESS
+```
+
+Lifecycle nodes are essential for humanoid robots because they allow for:
+- Graceful startup and shutdown sequences
+- Safe state transitions during operation
+- Coordinated activation of multiple subsystems
+- Error recovery and reset procedures
+
+## Parameter Management for Humanoid Behaviors
+
+Humanoid robots require extensive parameterization for different behaviors, environments, and robot configurations. ROS 2's parameter system provides a flexible way to manage these values:
+
+```python
+class HumanoidWalkController(Node):
+    def __init__(self):
+        super().__init__('humanoid_walk_controller')
+
+        # Declare parameters with default values
+        self.declare_parameter('step_height', 0.05)
+        self.declare_parameter('step_length', 0.3)
+        self.declare_parameter('step_duration', 1.0)
+        self.declare_parameter('zmp_margin', 0.02)
+        self.declare_parameter('max_foot_rotation', 0.2)
+
+        # Get parameter values
+        self.step_height = self.get_parameter('step_height').value
+        self.step_length = self.get_parameter('step_length').value
+        self.step_duration = self.get_parameter('step_duration').value
+
+        # Set callback for parameter changes
+        self.add_on_set_parameters_callback(self.parameter_callback)
+
+    def parameter_callback(self, params):
+        for param in params:
+            if param.name == 'step_height':
+                if param.value > 0.1:  # Safety limit
+                    return SetParametersResult(successful=False, reason='Step height too high')
+        return SetParametersResult(successful=True)
+```
+
+Parameters can be set at launch time, during runtime, or through configuration files, allowing for:
+- Different walking styles (conservative vs dynamic)
+- Environment-specific adjustments (indoor vs outdoor)
+- Robot-specific calibration values
+- Safety limits that can be adjusted based on operational context
+
+## TF2 for Humanoid Coordinate Management
+
+TF2 (Transform Library 2) is crucial for humanoid robots, which have many coordinate frames that need to be tracked and transformed between. A humanoid robot typically has frames for:
+
+- Base link (torso)
+- Each joint and link
+- End effectors (hands, feet)
+- Sensors (cameras, IMUs)
+- Planning frames (goal, obstacles)
+
+```python
+import rclpy
+from rclpy.node import Node
+from tf2_ros import TransformBroadcaster, TransformListener
+from tf2_ros.buffer import Buffer
+from geometry_msgs.msg import TransformStamped
+from builtin_interfaces.msg import Time
+
+class HumanoidTFManager(Node):
+    def __init__(self):
+        super().__init__('humanoid_tf_manager')
+
+        # Create transform broadcaster
+        self.tf_broadcaster = TransformBroadcaster(self)
+
+        # Create transform buffer and listener
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+
+    def broadcast_humanoid_transforms(self, joint_states):
+        """Broadcast all humanoid transforms based on joint states"""
+        transforms = []
+
+        # Calculate transforms from joint positions
+        # This is a simplified example - real implementation would use forward kinematics
+        for i, joint_name in enumerate(joint_states.name):
+            transform = TransformStamped()
+            transform.header.stamp = self.get_clock().now().to_msg()
+            transform.header.frame_id = 'base_link'
+            transform.child_frame_id = f'{joint_name}_link'
+
+            # Set transform based on joint position (simplified)
+            # In practice, this would use forward kinematics
+            transform.transform.translation.x = 0.0
+            transform.transform.translation.y = 0.0
+            transform.transform.translation.z = 0.0
+            transform.transform.rotation.x = 0.0
+            transform.transform.rotation.y = 0.0
+            transform.transform.rotation.z = 0.0
+            transform.transform.rotation.w = 1.0
+
+            transforms.append(transform)
+
+        self.tf_broadcaster.sendTransform(transforms)
+
+    def get_foot_position(self, foot_frame):
+        """Get the position of a foot in the base frame"""
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                'base_link', foot_frame, Time(), timeout=Duration(seconds=1.0)
+            )
+            return transform.transform.translation
+        except TransformException as ex:
+            self.get_logger().error(f'Could not transform {foot_frame}: {ex}')
+            return None
+```
+
+TF2 enables:
+- Coordination between multiple sensors
+- Planning in consistent coordinate frames
+- Visual servoing and manipulation
+- Multi-robot coordination
+- Integration with external systems
+
+## Real-Time Considerations for Humanoid Control
+
+Humanoid robots have strict timing requirements for stability and safety. ROS 2 provides several features to support real-time operation:
+
+### Real-Time Capabilities
+
+For critical control loops, consider using real-time Linux with appropriate kernel patches. ROS 2 supports real-time operation through:
+
+- Memory pre-allocation to avoid dynamic allocation during operation
+- Lock-free data structures
+- Minimal kernel bypass for critical paths
+
+```python
+class RealTimeHumanoidController(Node):
+    def __init__(self):
+        super().__init__('realtime_humanoid_controller')
+
+        # Pre-allocate message objects to avoid dynamic allocation
+        self.joint_cmd_msg = JointState()
+        self.joint_cmd_msg.name = ['joint1', 'joint2', 'joint3']  # Fixed size
+        self.joint_cmd_msg.position = [0.0, 0.0, 0.0]  # Fixed size
+
+        # Create timer with specific period for control loop
+        self.control_timer = self.create_timer(
+            0.001,  # 1kHz control loop
+            self.control_callback,
+            clock=Self.CLOCK_MONOTONIC  # Use monotonic clock for consistency
+        )
+
+    def control_callback(self):
+        """Real-time control callback"""
+        # Update control commands using pre-allocated message
+        # This should execute in predictable time
+        self.joint_cmd_msg.header.stamp = self.get_clock().now().to_msg()
+
+        # Calculate new joint positions based on control algorithm
+        # (balance control, trajectory following, etc.)
+
+        self.joint_publisher.publish(self.joint_cmd_msg)
+```
+
+### Timing and Synchronization
+
+Humanoid robots require precise timing for:
+- Joint control loops (typically 100Hz-1kHz)
+- Balance control (typically 100Hz)
+- Perception processing (typically 10-30Hz)
+- High-level planning (typically 1-10Hz)
+
+```python
+class HumanoidTimingManager(Node):
+    def __init__(self):
+        super().__init__('humanoid_timing_manager')
+
+        # Different control loops at different frequencies
+        self.high_freq_timer = self.create_timer(0.001, self.high_freq_callback)    # 1kHz
+        self.med_freq_timer = self.create_timer(0.01, self.med_freq_callback)      # 100Hz
+        self.low_freq_timer = self.create_timer(0.1, self.low_freq_callback)       # 10Hz
+
+    def high_freq_callback(self):
+        """Joint control and safety checks"""
+        pass
+
+    def med_freq_callback(self):
+        """Balance control and trajectory following"""
+        pass
+
+    def low_freq_callback(self):
+        """Planning and high-level decision making"""
+        pass
+```
+
+## Advanced Communication Patterns
+
+### Action Servers for Complex Humanoid Tasks
+
+Actions are particularly important for humanoid robots, which often perform complex, long-running tasks:
+
+```python
+import rclpy
+from rclpy.action import ActionServer, CancelResponse, GoalResponse
+from rclpy.node import Node
+from humanoid_msgs.action import WalkToGoal  # Custom action message
+
+class WalkToGoalActionServer(Node):
+    def __init__(self):
+        super().__init__('walk_to_goal_server')
+        self._action_server = ActionServer(
+            self,
+            WalkToGoal,
+            'walk_to_goal',
+            execute_callback=self.execute_callback,
+            goal_callback=self.goal_callback,
+            cancel_callback=self.cancel_callback
+        )
+
+    def goal_callback(self, goal_request):
+        """Accept or reject goal based on current state"""
+        # Check if humanoid is in a safe state to walk
+        if self.is_humanoid_safe_to_walk():
+            return GoalResponse.ACCEPT
+        else:
+            return GoalResponse.REJECT
+
+    def cancel_callback(self, goal_handle):
+        """Accept or reject cancel request"""
+        return CancelResponse.ACCEPT
+
+    async def execute_callback(self, goal_handle):
+        """Execute the walking goal"""
+        self.get_logger().info('Executing walk to goal...')
+
+        feedback_msg = WalkToGoal.Feedback()
+        result_msg = WalkToGoal.Result()
+
+        goal = goal_handle.request.goal
+        current_position = self.get_humanoid_position()
+
+        while not self.is_at_goal(current_position, goal) and not goal_handle.is_cancel_requested:
+            # Calculate next step
+            next_step = self.calculate_next_step(current_position, goal)
+
+            # Execute step
+            success = self.execute_step(next_step)
+
+            if success:
+                current_position = self.get_humanoid_position()
+
+                # Publish feedback
+                feedback_msg.current_position = current_position
+                feedback_msg.distance_remaining = self.calculate_distance(current_position, goal)
+                goal_handle.publish_feedback(feedback_msg)
+
+                # Sleep for step timing
+                await asyncio.sleep(0.1)
+            else:
+                goal_handle.abort()
+                result_msg.success = False
+                result_msg.message = 'Failed to execute step'
+                return result_msg
+
+        if goal_handle.is_cancel_requested:
+            goal_handle.canceled()
+            result_msg.success = False
+            result_msg.message = 'Goal canceled'
+        else:
+            goal_handle.succeed()
+            result_msg.success = True
+            result_msg.message = 'Successfully reached goal'
+
+        return result_msg
+```
+
+## Security in Humanoid ROS 2 Systems
+
+As humanoid robots become more prevalent, security becomes increasingly important:
+
+### DDS Security
+
+ROS 2 uses DDS (Data Distribution Service) as its middleware, which supports security features:
+
+- **Authentication**: Verify identity of nodes
+- **Access Control**: Control which nodes can communicate
+- **Encryption**: Protect data in transit
+
+Configuration files define security policies:
+
+```yaml
+# security.yaml
+name: "humanoid_robot"
+version: "1.0"
+permissions:
+  - name: "control_nodes"
+    rules:
+      - action: "allow"
+        topics: ["/joint_commands", "/twist", "/navigation/goal"]
+        type: "topic"
+  - name: "sensor_nodes"
+    rules:
+      - action: "allow"
+        topics: ["/camera/*", "/lidar/*", "/imu/data"]
+        type: "topic"
+```
+
+## Summary
+
+Advanced ROS 2 concepts are essential for building robust, safe, and capable humanoid robot systems. Custom message types allow for specialized humanoid data, lifecycle nodes provide structured state management, parameter systems enable flexible configuration, TF2 manages complex coordinate transformations, and real-time considerations ensure safety-critical performance.
+
+These advanced features work together to create the sophisticated control systems required for humanoid robots, enabling them to operate safely and effectively in complex environments.
+
+## Next Steps
+
+- Implement custom message types for your specific humanoid robot
+- Design lifecycle management for your robot's subsystems
+- Create parameter configurations for different operational modes
+- Practice TF2 transformations for your robot's kinematic structure
+- Investigate real-time Linux for critical control loops

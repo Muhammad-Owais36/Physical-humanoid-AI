@@ -1,0 +1,872 @@
+---
+title: Advanced Digital Twin Concepts - Physics Simulation and Environment Building
+sidebar_position: 2
+---
+
+# Advanced Digital Twin Concepts: Physics Simulation and Environment Building
+
+## Learning Objectives
+
+By the end of this chapter, you will be able to:
+- Implement advanced physics simulation techniques for humanoid robots
+- Create complex environments for testing and training
+- Develop sensor simulation models that accurately reflect physical sensors
+- Implement realistic actuator models with dynamics and limitations
+- Design and validate digital twin models against physical robot behavior
+
+## Prerequisites
+
+Before starting this chapter, you should have:
+- Understanding of basic Digital Twin concepts (Gazebo and Unity)
+- Experience with robot modeling and URDF/SDF
+- Knowledge of ROS 2 communication patterns
+- Basic understanding of physics simulation principles
+
+## Advanced Physics Simulation for Humanoid Robots
+
+Humanoid robots present unique challenges in physics simulation due to their complex kinematics, balance requirements, and interaction with the environment.
+
+### Multi-Body Dynamics
+
+Humanoid robots are complex multi-body systems with many degrees of freedom. Proper simulation requires accurate modeling of:
+
+- Joint constraints and limits
+- Dynamic coupling between body parts
+- Contact forces and friction
+- Inertial properties of each link
+
+```xml
+<!-- Advanced URDF with detailed inertial properties -->
+<link name="left_upper_leg">
+  <inertial>
+    <!-- Accurate mass distribution -->
+    <mass value="2.5"/>
+    <!-- 6x6 inertia matrix -->
+    <inertia
+      ixx="0.02" ixy="0.0" ixz="0.001"
+      iyy="0.01" iyz="0.0"
+      izz="0.015"/>
+  </inertial>
+
+  <visual>
+    <geometry>
+      <mesh filename="package://humanoid_description/meshes/left_upper_leg.dae"/>
+    </geometry>
+    <material name="gray"/>
+  </visual>
+
+  <collision>
+    <!-- Simplified collision geometry for performance -->
+    <geometry>
+      <capsule length="0.35" radius="0.06"/>
+    </geometry>
+  </collision>
+</link>
+
+<!-- Joint with realistic limits and dynamics -->
+<joint name="left_hip_yaw" type="revolute">
+  <parent link="torso"/>
+  <child link="left_upper_leg"/>
+  <origin xyz="0.0 -0.1 -0.05" rpy="0 0 0"/>
+  <axis xyz="0 0 1"/>
+  <!-- Realistic joint limits based on human anatomy -->
+  <limit lower="-0.4" upper="0.4" effort="150" velocity="2.0"/>
+  <!-- Joint dynamics including friction and damping -->
+  <dynamics friction="0.5" damping="1.0"/>
+</joint>
+```
+
+### Contact and Friction Modeling
+
+Humanoid robots interact with the environment through contact points, making accurate contact modeling critical:
+
+```xml
+<!-- Gazebo contact properties -->
+<gazebo reference="left_foot">
+  <collision>
+    <surface>
+      <friction>
+        <!-- ODE friction model -->
+        <ode>
+          <mu>0.8</mu>  <!-- Coefficient of friction -->
+          <mu2>0.8</mu2>
+          <fdir1>0 0 1</fdir1>  <!-- Friction direction -->
+          <slip1>0.0</slip1>    <!-- Slip in primary direction -->
+          <slip2>0.0</slip2>    <!-- Slip in secondary direction -->
+        </ode>
+        <!-- Bullet friction model -->
+        <bullet>
+          <friction>0.8</friction>
+          <friction2>0.8</friction2>
+          <rolling_friction>0.01</rolling_friction>
+        </bullet>
+      </friction>
+      <bounce>
+        <restitution_coefficient>0.1</restitution_coefficient>
+        <threshold>100000</threshold>
+      </bounce>
+      <contact>
+        <ode>
+          <soft_cfm>0.001</soft_cfm>
+          <soft_erp>0.2</soft_erp>
+          <kp>1000000000000.0</kp>
+          <kd>1000000000000.0</kd>
+          <max_vel>100.0</max_vel>
+          <min_depth>0.001</min_depth>
+        </ode>
+      </contact>
+    </surface>
+  </collision>
+</gazebo>
+```
+
+### Balance and Stability Simulation
+
+Humanoid robots require sophisticated balance control, which must be accurately simulated:
+
+```xml
+<!-- Gazebo plugin for center of mass visualization -->
+<gazebo>
+  <plugin name="com_visualizer" filename="libgazebo_ros_com.so">
+    <ros>
+      <namespace>/humanoid</namespace>
+      <remapping>com_state:=com_state</remapping>
+    </ros>
+    <update_rate>100</update_rate>
+    <visualize>true</visualize>
+  </plugin>
+</gazebo>
+```
+
+## Advanced Environment Building
+
+Creating realistic environments is crucial for effective Digital Twin development.
+
+### Gazebo World Creation
+
+Gazebo worlds are defined using SDF (Simulation Description Format):
+
+```xml
+<?xml version="1.0" ?>
+<sdf version="1.7">
+  <world name="humanoid_indoor">
+    <!-- Include standard environment -->
+    <include>
+      <uri>model://ground_plane</uri>
+    </include>
+
+    <include>
+      <uri>model://sun</uri>
+    </include>
+
+    <!-- Custom indoor environment -->
+    <model name="room_walls">
+      <pose>0 0 2.5 0 0 0</pose>
+      <static>true</static>
+
+      <!-- Wall 1: Front -->
+      <link name="wall_front">
+        <pose>0 -3 2.5 0 0 0</pose>
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>6 0.2 5</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>6 0.2 5</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.8 0.8 0.8 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+          </material>
+        </visual>
+      </link>
+
+      <!-- Additional walls would be defined similarly -->
+    </model>
+
+    <!-- Furniture for realistic testing -->
+    <model name="table">
+      <pose>2 0 0.4 0 0 0</pose>
+      <link name="table_top">
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>1.2 0.6 0.02</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>1.2 0.6 0.02</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.6 0.4 0.2 1</ambient>
+            <diffuse>0.6 0.4 0.2 1</diffuse>
+          </material>
+        </visual>
+      </link>
+
+      <!-- Table legs -->
+      <link name="leg1">
+        <pose>0.5 0.25 0.3 0 0 0</pose>
+        <collision name="collision">
+          <geometry>
+            <cylinder>
+              <radius>0.03</radius>
+              <length>0.6</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <cylinder>
+              <radius>0.03</radius>
+              <length>0.6</length>
+            </cylinder>
+          </geometry>
+        </visual>
+      </link>
+
+      <!-- Additional legs would be defined similarly -->
+    </model>
+
+    <!-- Obstacles for navigation testing -->
+    <model name="obstacle1">
+      <pose>-1 1 0.1 0 0 0</pose>
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.3 0.3 0.2</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.3 0.3 0.2</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>1 0 0 1</ambient>
+            <diffuse>1 0 0 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Physics parameters -->
+    <physics name="1ms" type="ode">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+      <real_time_update_rate>1000</real_time_update_rate>
+      <gravity>0 0 -9.8</gravity>
+    </physics>
+  </world>
+</sdf>
+```
+
+### Unity Environment Building
+
+Unity environments are created using the Unity editor with robotics-specific packages:
+
+```csharp
+using UnityEngine;
+using Unity.Robotics.ROSTCPConnector;
+using RosMessageTypes.Geometry;
+
+[RequireComponent(typeof(Rigidbody))]
+public class UnityHumanoidEnvironment : MonoBehaviour
+{
+    [Header("Environment Properties")]
+    public float groundFriction = 0.8f;
+    public float groundBounciness = 0.1f;
+
+    [Header("Obstacle Properties")]
+    public float obstacleHeight = 0.2f;
+    public float obstacleWidth = 0.3f;
+
+    void Start()
+    {
+        // Set up ground material
+        SetupGroundMaterial();
+
+        // Create environment obstacles
+        CreateEnvironmentObstacles();
+    }
+
+    void SetupGroundMaterial()
+    {
+        // Create a physic material for the ground
+        PhysicMaterial groundMaterial = new PhysicMaterial();
+        groundMaterial.staticFriction = groundFriction;
+        groundMaterial.dynamicFriction = groundFriction;
+        groundMaterial.bounciness = groundBounciness;
+
+        // Apply to ground collider
+        Collider groundCollider = GetComponent<Collider>();
+        if (groundCollider != null)
+        {
+            groundCollider.material = groundMaterial;
+        }
+    }
+
+    void CreateEnvironmentObstacles()
+    {
+        // Create various obstacles for testing
+        CreateRandomObstacles();
+        SetupNavigationMesh();
+    }
+
+    void CreateRandomObstacles()
+    {
+        // Create obstacles at random positions
+        for (int i = 0; i < 10; i++)
+        {
+            Vector3 position = new Vector3(
+                Random.Range(-5f, 5f),
+                obstacleHeight / 2f,
+                Random.Range(-5f, 5f)
+            );
+
+            GameObject obstacle = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            obstacle.transform.position = position;
+            obstacle.transform.localScale = new Vector3(
+                obstacleWidth, obstacleHeight, obstacleWidth
+            );
+
+            // Add realistic physics properties
+            Rigidbody rb = obstacle.AddComponent<Rigidbody>();
+            rb.mass = 5f;
+            rb.drag = 0.1f;
+
+            // Add collision detection
+            obstacle.layer = LayerMask.NameToLayer("Obstacle");
+        }
+    }
+
+    void SetupNavigationMesh()
+    {
+        // This would typically involve creating a NavMesh for path planning
+        // In practice, you'd use Unity's Navigation system or custom solutions
+    }
+}
+```
+
+## Advanced Sensor Simulation
+
+Accurate sensor simulation is critical for Digital Twin effectiveness.
+
+### Camera and Vision Sensors
+
+```xml
+<!-- Gazebo camera sensor -->
+<gazebo reference="head_camera">
+  <sensor name="camera" type="camera">
+    <always_on>true</always_on>
+    <update_rate>30</update_rate>
+    <camera name="head">
+      <horizontal_fov>1.047</horizontal_fov> <!-- 60 degrees -->
+      <image>
+        <width>640</width>
+        <height>480</height>
+        <format>R8G8B8</format>
+      </image>
+      <clip>
+        <near>0.1</near>
+        <far>10.0</far>
+      </clip>
+      <noise>
+        <type>gaussian</type>
+        <mean>0.0</mean>
+        <stddev>0.007</stddev>
+      </noise>
+    </camera>
+    <plugin name="camera_controller" filename="libgazebo_ros_camera.so">
+      <ros>
+        <namespace>/humanoid</namespace>
+        <remapping>image_raw:=camera/image_raw</remapping>
+        <remapping>camera_info:=camera/camera_info</remapping>
+      </ros>
+      <camera_name>head_camera</camera_name>
+      <frame_name>head_camera_optical_frame</frame_name>
+      <hack_baseline>0.07</hack_baseline>
+      <distortion_k1>0.0</distortion_k1>
+      <distortion_k2>0.0</distortion_k2>
+      <distortion_k3>0.0</distortion_k3>
+      <distortion_t1>0.0</distortion_t1>
+      <distortion_t2>0.0</distortion_t2>
+    </plugin>
+  </sensor>
+</gazebo>
+```
+
+### LiDAR and Range Sensors
+
+```xml
+<!-- Gazebo LiDAR sensor -->
+<gazebo reference="laser_frame">
+  <sensor name="laser" type="ray">
+    <always_on>true</always_on>
+    <update_rate>10</update_rate>
+    <ray>
+      <scan>
+        <horizontal>
+          <samples>720</samples>
+          <resolution>1</resolution>
+          <min_angle>-1.570796</min_angle> <!-- -90 degrees -->
+          <max_angle>1.570796</max_angle>   <!-- 90 degrees -->
+        </horizontal>
+      </scan>
+      <range>
+        <min>0.1</min>
+        <max>30.0</max>
+        <resolution>0.01</resolution>
+      </range>
+      <noise>
+        <type>gaussian</type>
+        <mean>0.0</mean>
+        <stddev>0.01</stddev>
+      </noise>
+    </ray>
+    <plugin name="laser_controller" filename="libgazebo_ros_ray_sensor.so">
+      <ros>
+        <namespace>/humanoid</namespace>
+        <remapping>scan:=scan</remapping>
+      </ros>
+      <output_type>sensor_msgs/LaserScan</output_type>
+      <frame_name>laser_frame</frame_name>
+    </plugin>
+  </sensor>
+</gazebo>
+```
+
+### IMU and Inertial Sensors
+
+```xml
+<!-- Gazebo IMU sensor -->
+<gazebo reference="imu_link">
+  <sensor name="imu_sensor" type="imu">
+    <always_on>true</always_on>
+    <update_rate>100</update_rate>
+    <imu>
+      <angular_velocity>
+        <x>
+          <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>0.001</stddev>
+            <bias_mean>0.0001</bias_mean>
+            <bias_stddev>0.00001</bias_stddev>
+          </noise>
+        </x>
+        <y>
+          <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>0.001</stddev>
+            <bias_mean>0.0001</bias_mean>
+            <bias_stddev>0.00001</bias_stddev>
+          </noise>
+        </y>
+        <z>
+          <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>0.001</stddev>
+            <bias_mean>0.0001</bias_mean>
+            <bias_stddev>0.00001</bias_stddev>
+          </noise>
+        </z>
+      </angular_velocity>
+      <linear_acceleration>
+        <x>
+          <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>0.017</stddev>
+            <bias_mean>0.01</bias_mean>
+            <bias_stddev>0.001</bias_stddev>
+          </noise>
+        </x>
+        <y>
+          <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>0.017</stddev>
+            <bias_mean>0.01</bias_mean>
+            <bias_stddev>0.001</bias_stddev>
+          </noise>
+        </y>
+        <z>
+          <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>0.017</stddev>
+            <bias_mean>0.01</bias_mean>
+            <bias_stddev>0.001</bias_stddev>
+          </noise>
+        </z>
+      </linear_acceleration>
+    </imu>
+    <plugin name="imu_plugin" filename="libgazebo_ros_imu.so">
+      <ros>
+        <namespace>/humanoid</namespace>
+        <remapping>imu:=imu/data</remapping>
+      </ros>
+      <frame_name>imu_link</frame_name>
+      <body_name>torso</body_name>
+      <update_rate>100</update_rate>
+      <gaussian_noise>0.001</gaussian_noise>
+    </plugin>
+  </sensor>
+</gazebo>
+```
+
+## Actuator Modeling and Dynamics
+
+Realistic actuator models are essential for accurate Digital Twins:
+
+```xml
+<!-- Transmission for joint actuation -->
+<transmission name="left_hip_transmission" type="transmission_interface/SimpleTransmission">
+  <joint name="left_hip_yaw">
+    <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+  </joint>
+  <actuator name="left_hip_motor">
+    <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+    <mechanicalReduction>1</mechanicalReduction>
+  </actuator>
+</transmission>
+
+<!-- Gazebo plugin for joint control -->
+<gazebo>
+  <plugin name="gazebo_ros_control" filename="libgazebo_ros_control.so">
+    <robotNamespace>/humanoid</robotNamespace>
+    <robotSimType>gazebo_ros_control/DefaultRobotHWSim</robotSimType>
+    <legacyModeNS>true</legacyModeNS>
+  </plugin>
+</gazebo>
+```
+
+## Unity Advanced Sensor Simulation
+
+```csharp
+using UnityEngine;
+using Unity.Robotics.ROSTCPConnector;
+using RosMessageTypes.Sensor;
+using System.Collections;
+
+[RequireComponent(typeof(Camera))]
+public class UnityCameraSensor : MonoBehaviour
+{
+    [Header("Camera Properties")]
+    public int imageWidth = 640;
+    public int imageHeight = 480;
+    public float fieldOfView = 60f;
+
+    [Header("Noise Parameters")]
+    public float gaussianNoiseStdDev = 0.01f;
+    public float uniformNoiseRange = 0.005f;
+
+    private Camera cam;
+    private RenderTexture renderTexture;
+    private Texture2D texture2D;
+    private ROSConnection ros;
+
+    void Start()
+    {
+        cam = GetComponent<Camera>();
+        cam.fieldOfView = fieldOfView;
+
+        // Create render texture for camera
+        renderTexture = new RenderTexture(imageWidth, imageHeight, 24);
+        cam.targetTexture = renderTexture;
+
+        // Create texture for reading
+        texture2D = new Texture2D(imageWidth, imageHeight, TextureFormat.RGB24, false);
+
+        // Connect to ROS
+        ros = ROSConnection.GetOrCreateInstance();
+    }
+
+    void Update()
+    {
+        // Capture image and publish to ROS
+        if (Time.frameCount % 30 == 0) // Publish at 30 FPS
+        {
+            PublishCameraImage();
+        }
+    }
+
+    void PublishCameraImage()
+    {
+        // Read pixels from render texture
+        RenderTexture.active = renderTexture;
+        texture2D.ReadPixels(new Rect(0, 0, imageWidth, imageHeight), 0, 0);
+        texture2D.Apply();
+
+        // Add noise if needed
+        if (gaussianNoiseStdDev > 0 || uniformNoiseRange > 0)
+        {
+            AddImageNoise(texture2D);
+        }
+
+        // Convert to ROS message and publish
+        // This would involve converting the texture to the appropriate ROS image format
+        var imageMsg = CreateImageMessage(texture2D);
+        ros.Publish($"/humanoid/camera/image_raw", imageMsg);
+    }
+
+    void AddImageNoise(Texture2D texture)
+    {
+        Color[] pixels = texture.GetPixels();
+
+        for (int i = 0; i < pixels.Length; i++)
+        {
+            // Add Gaussian noise
+            float noise = RandomGaussian(gaussianNoiseStdDev);
+
+            // Add uniform noise
+            noise += Random.Range(-uniformNoiseRange, uniformNoiseRange);
+
+            pixels[i] = AddNoiseToColor(pixels[i], noise);
+        }
+
+        texture.SetPixels(pixels);
+        texture.Apply();
+    }
+
+    float RandomGaussian(float stdDev)
+    {
+        // Box-Muller transform for Gaussian noise
+        float u1 = Random.value;
+        float u2 = Random.value;
+        float normal = Mathf.Sqrt(-2.0f * Mathf.Log(u1)) * Mathf.Cos(2.0f * Mathf.PI * u2);
+        return normal * stdDev;
+    }
+
+    Color AddNoiseToColor(Color color, float noise)
+    {
+        Color noisyColor = color;
+        noisyColor.r = Mathf.Clamp01(noisyColor.r + noise);
+        noisyColor.g = Mathf.Clamp01(noisyColor.g + noise);
+        noisyColor.b = Mathf.Clamp01(noisyColor.b + noise);
+        return noisyColor;
+    }
+
+    ImageMsg CreateImageMessage(Texture2D texture)
+    {
+        // Convert texture to ROS image message
+        // This implementation would depend on the specific ROS message format
+        // and the Unity-ROS bridge being used
+        var imageMsg = new ImageMsg();
+
+        // Set image properties
+        imageMsg.height = (uint)texture.height;
+        imageMsg.width = (uint)texture.width;
+        imageMsg.encoding = "rgb8";
+        imageMsg.is_bigendian = 0;
+        imageMsg.step = (uint)(texture.width * 3); // 3 bytes per pixel for RGB
+
+        // Convert texture data to bytes
+        Color32[] colors = texture.GetPixels32();
+        byte[] imageData = new byte[colors.Length * 3];
+
+        for (int i = 0; i < colors.Length; i++)
+        {
+            imageData[i * 3] = colors[i].r;
+            imageData[i * 3 + 1] = colors[i].g;
+            imageData[i * 3 + 2] = colors[i].b;
+        }
+
+        imageMsg.data = imageData;
+        return imageMsg;
+    }
+}
+```
+
+## Digital Twin Validation Techniques
+
+Validating that your Digital Twin accurately represents the physical system is crucial:
+
+### Kinematic Validation
+
+Compare forward and inverse kinematics between simulation and reality:
+
+```python
+import numpy as np
+from scipy.spatial.transform import Rotation as R
+
+def validate_kinematics(sim_joints, real_joints, tolerance=0.01):
+    """
+    Validate that simulated and real joint positions match
+    """
+    diff = np.abs(np.array(sim_joints) - np.array(real_joints))
+    max_diff = np.max(diff)
+
+    if max_diff > tolerance:
+        print(f"Kinematic validation failed: max diff = {max_diff}")
+        return False
+    else:
+        print(f"Kinematic validation passed: max diff = {max_diff}")
+        return True
+
+def validate_end_effector_pose(sim_pose, real_pose, pos_tolerance=0.01, rot_tolerance=0.05):
+    """
+    Validate end effector pose between simulation and reality
+    """
+    pos_diff = np.linalg.norm(np.array(sim_pose[:3]) - np.array(real_pose[:3]))
+    rot_diff = R.from_quat(sim_pose[3:]).inv() * R.from_quat(real_pose[3:])
+    angle_diff = rot_diff.magnitude()
+
+    pos_valid = pos_diff <= pos_tolerance
+    rot_valid = angle_diff <= rot_tolerance
+
+    if not (pos_valid and rot_valid):
+        print(f"Pose validation failed: pos_diff={pos_diff:.3f}, rot_diff={angle_diff:.3f}")
+        return False
+    else:
+        print(f"Pose validation passed: pos_diff={pos_diff:.3f}, rot_diff={angle_diff:.3f}")
+        return True
+```
+
+### Dynamic Validation
+
+Compare dynamic responses and forces:
+
+```python
+def validate_dynamics(sim_forces, real_forces, tolerance=5.0):
+    """
+    Validate force/torque measurements between simulation and reality
+    """
+    diff = np.abs(np.array(sim_forces) - np.array(real_forces))
+    max_diff = np.max(diff)
+
+    if max_diff > tolerance:
+        print(f"Dynamic validation failed: max force diff = {max_diff}")
+        return False
+    else:
+        print(f"Dynamic validation passed: max force diff = {max_diff}")
+        return True
+
+def validate_balance(sim_com, real_com, threshold=0.05):
+    """
+    Validate balance by comparing center of mass positions
+    """
+    com_distance = np.linalg.norm(np.array(sim_com[:2]) - np.array(real_com[:2]))
+
+    if com_distance > threshold:
+        print(f"Balance validation failed: CoM distance = {com_distance:.3f}")
+        return False
+    else:
+        print(f"Balance validation passed: CoM distance = {com_distance:.3f}")
+        return True
+```
+
+## Performance Optimization
+
+### Gazebo Optimization
+
+```xml
+<!-- Optimized physics settings for better performance -->
+<physics name="optimized_physics" type="ode">
+  <max_step_size>0.002</max_step_size>  <!-- Larger step size for performance -->
+  <real_time_factor>0.5</real_time_factor>  <!-- Allow slower than real-time -->
+  <real_time_update_rate>500</real_time_update_rate>
+  <gravity>0 0 -9.8</gravity>
+
+  <!-- ODE solver settings -->
+  <ode>
+    <solver>
+      <type>quick</type>  <!-- Faster solver -->
+      <iters>10</iters>   <!-- Fewer iterations -->
+      <sor>1.3</sor>
+    </solver>
+    <constraints>
+      <cfm>0.0001</cfm>
+      <erp>0.2</erp>
+      <contact_max_correcting_vel>100</contact_max_correcting_vel>
+      <contact_surface_layer>0.001</contact_surface_layer>
+    </constraints>
+  </ode>
+</physics>
+```
+
+### Unity Performance Optimization
+
+```csharp
+using UnityEngine;
+
+public class UnitySimulationOptimizer : MonoBehaviour
+{
+    [Header("Performance Settings")]
+    public int targetFrameRate = 60;
+    public float fixedDeltaTime = 0.016f; // 60 FPS
+    public bool enableOcclusionCulling = true;
+    public bool enableLOD = true;
+
+    [Header("Physics Settings")]
+    public int maxAngularVelocity = 50;
+    public int solverIterations = 6;
+    public int solverVelocityIterations = 1;
+
+    void Start()
+    {
+        OptimizePerformance();
+    }
+
+    void OptimizePerformance()
+    {
+        // Set target frame rate
+        Application.targetFrameRate = targetFrameRate;
+
+        // Set fixed delta time for physics
+        Time.fixedDeltaTime = fixedDeltaTime;
+
+        // Optimize physics settings
+        Physics.defaultMaxAngularVelocity = maxAngularVelocity;
+        Physics.defaultSolverIterations = solverIterations;
+        Physics.defaultSolverVelocityIterations = solverVelocityIterations;
+
+        // Enable occlusion culling if available
+        if (enableOcclusionCulling)
+        {
+            // This would be set in the scene lighting settings
+            // or through the Unity editor
+        }
+    }
+
+    void Update()
+    {
+        // Dynamic optimization based on performance
+        if (Time.unscaledDeltaTime > 1.0f / (targetFrameRate * 0.8f))
+        {
+            // Reduce quality if we're falling behind
+            QualitySettings.DecreaseLevel(false);
+        }
+    }
+}
+```
+
+## Summary
+
+Advanced Digital Twin development for humanoid robotics requires careful attention to physics accuracy, sensor modeling, and environment complexity. The simulation must accurately reflect the physical robot's behavior while providing the performance needed for real-time operation.
+
+Key considerations include:
+- Accurate physics modeling with proper inertial properties
+- Realistic sensor simulation with appropriate noise models
+- Complex environments for comprehensive testing
+- Validation techniques to ensure simulation accuracy
+- Performance optimization for real-time operation
+
+## Next Steps
+
+- Implement advanced physics models for your specific humanoid robot
+- Create detailed environments for testing various scenarios
+- Validate your Digital Twin against physical hardware
+- Optimize simulation performance for real-time operation
+- Integrate with AI training pipelines for perception and control

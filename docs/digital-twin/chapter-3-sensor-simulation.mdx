@@ -1,0 +1,609 @@
+---
+sidebar_position: 3
+---
+
+# Chapter 3: Sensor Simulation
+
+## Introduction
+
+Sensor simulation is a critical component of the Digital Twin concept in humanoid robotics. Accurate simulation of sensors enables safe development and testing of perception algorithms, navigation systems, and control strategies before deployment on physical robots. This chapter explores comprehensive sensor simulation techniques for humanoid robots, covering cameras, LiDAR, IMUs, force/torque sensors, and other perception modalities.
+
+## Sensor Simulation Fundamentals
+
+### The Importance of Realistic Sensor Models
+
+In humanoid robotics, sensors provide the robot's "senses" for understanding its environment and state. Realistic sensor simulation must account for:
+
+- **Noise characteristics**: Real sensors have inherent noise and uncertainty
+- **Latency**: Sensor data has processing and transmission delays
+- **Limited field of view**: Sensors only perceive part of the environment
+- **Physical constraints**: Mounting positions, occlusions, and interference
+- **Environmental factors**: Lighting, weather, and electromagnetic interference
+
+### Sensor Simulation Pipeline
+
+The typical sensor simulation pipeline involves:
+
+1. **Scene rendering**: Generate ground truth data from the 3D environment
+2. **Noise injection**: Add realistic noise models based on sensor specifications
+3. **Distortion modeling**: Apply lens distortion, sensor-specific artifacts
+4. **Data formatting**: Convert to appropriate ROS message formats
+5. **Timing simulation**: Apply realistic update rates and latencies
+
+## Camera Simulation
+
+### RGB Camera Simulation
+
+RGB cameras are essential for humanoid robots' visual perception. Realistic simulation requires:
+
+```xml
+<!-- Gazebo camera simulation -->
+<gazebo reference="head_camera">
+  <sensor name="camera" type="camera">
+    <always_on>true</always_on>
+    <update_rate>30</update_rate>
+    <camera name="head_camera">
+      <horizontal_fov>1.047</horizontal_fov> <!-- 60 degrees -->
+      <image>
+        <width>640</width>
+        <height>480</height>
+        <format>R8G8B8</format>
+      </image>
+      <clip>
+        <near>0.1</near>
+        <far>100</far>
+      </clip>
+      <noise>
+        <type>gaussian</type>
+        <mean>0.0</mean>
+        <stddev>0.007</stddev>
+      </noise>
+    </camera>
+    <plugin name="camera_controller" filename="libgazebo_ros_camera.so">
+      <frame_name>head_camera_optical_frame</frame_name>
+      <min_depth>0.1</min_depth>
+      <max_depth>100.0</max_depth>
+    </plugin>
+  </sensor>
+</gazebo>
+```
+
+### Depth Camera Simulation
+
+Depth cameras provide crucial 3D information for humanoid navigation and manipulation:
+
+```xml
+<gazebo reference="depth_camera">
+  <sensor name="depth_camera" type="depth">
+    <always_on>true</always_on>
+    <update_rate>30</update_rate>
+    <camera name="depth_camera">
+      <horizontal_fov>1.047</horizontal_fov>
+      <image>
+        <width>320</width>
+        <height>240</height>
+        <format>L8</format> <!-- 8-bit depth -->
+      </image>
+      <clip>
+        <near>0.1</near>
+        <far>10</far>
+      </clip>
+    </camera>
+    <plugin name="depth_camera_controller" filename="libgazebo_ros_openni_kinect.so">
+      <baseline>0.2</baseline>
+      <distortion_k1>0.0</distortion_k1>
+      <distortion_k2>0.0</distortion_k2>
+      <distortion_k3>0.0</distortion_k3>
+      <distortion_t1>0.0</distortion_t1>
+      <distortion_t2>0.0</distortion_t2>
+      <point_cloud_cutoff>0.3</point_cloud_cutoff>
+      <point_cloud_cutoff_max>5.0</point_cloud_cutoff_max>
+      <frame_name>depth_camera_optical_frame</frame_name>
+      <point_cloud_transport>raw</point_cloud_transport>
+    </plugin>
+  </sensor>
+</gazebo>
+```
+
+### Stereo Camera Simulation
+
+Stereo cameras provide depth perception through triangulation:
+
+```xml
+<!-- Left camera -->
+<gazebo reference="stereo_left_camera">
+  <sensor name="stereo_left" type="camera">
+    <always_on>true</always_on>
+    <update_rate>20</update_rate>
+    <camera name="stereo_left">
+      <horizontal_fov>0.785</horizontal_fov> <!-- 45 degrees -->
+      <image>
+        <width>640</width>
+        <height>480</height>
+        <format>R8G8B8</format>
+      </image>
+      <clip>
+        <near>0.1</near>
+        <far>30</far>
+      </clip>
+    </camera>
+  </sensor>
+</gazebo>
+
+<!-- Right camera (offset from left) -->
+<gazebo reference="stereo_right_camera">
+  <sensor name="stereo_right" type="camera">
+    <always_on>true</always_on>
+    <update_rate>20</update_rate>
+    <camera name="stereo_right">
+      <horizontal_fov>0.785</horizontal_fov>
+      <image>
+        <width>640</width>
+        <height>480</height>
+        <format>R8G8B8</format>
+      </image>
+      <clip>
+        <near>0.1</near>
+        <far>30</far>
+      </clip>
+    </camera>
+  </sensor>
+</gazebo>
+```
+
+## LiDAR Simulation
+
+### 2D LiDAR for Navigation
+
+2D LiDAR sensors are crucial for humanoid robot navigation and obstacle detection:
+
+```xml
+<gazebo reference="laser_scan">
+  <sensor name="laser" type="ray">
+    <always_on>true</always_on>
+    <update_rate>40</update_rate>
+    <ray>
+      <scan>
+        <horizontal>
+          <samples>720</samples>
+          <resolution>1</resolution>
+          <min_angle>-3.14159</min_angle> <!-- -π radians -->
+          <max_angle>3.14159</max_angle>    <!-- π radians -->
+        </horizontal>
+      </scan>
+      <range>
+        <min>0.1</min>
+        <max>30.0</max>
+        <resolution>0.01</resolution>
+      </range>
+    </ray>
+    <plugin name="laser_controller" filename="libgazebo_ros_ray_sensor.so">
+      <ros>
+        <namespace>/laser_scanner</namespace>
+        <remapping>~/out:=scan</remapping>
+      </ros>
+      <output_type>sensor_msgs/LaserScan</output_type>
+      <frame_name>laser_frame</frame_name>
+    </plugin>
+  </sensor>
+</gazebo>
+```
+
+### 3D LiDAR for Environment Mapping
+
+3D LiDAR provides comprehensive environmental perception:
+
+```xml
+<gazebo reference="velodyne_sensor">
+  <sensor name="velodyne" type="ray">
+    <always_on>true</always_on>
+    <update_rate>10</update_rate>
+    <ray>
+      <scan>
+        <horizontal>
+          <samples>800</samples>
+          <resolution>1</resolution>
+          <min_angle>-3.14159</min_angle>
+          <max_angle>3.14159</max_angle>
+        </horizontal>
+        <vertical>
+          <samples>32</samples>
+          <resolution>1</resolution>
+          <min_angle>-0.5236</min_angle> <!-- -30 degrees -->
+          <max_angle>0.2618</max_angle>   <!-- 15 degrees -->
+        </vertical>
+      </scan>
+      <range>
+        <min>0.9</min>
+        <max>130.0</max>
+        <resolution>0.001</resolution>
+      </range>
+    </ray>
+    <plugin name="velodyne_controller" filename="libgazebo_ros_velodyne_laser.so">
+      <ros>
+        <namespace>/velodyne</namespace>
+        <remapping>~/out:=cloud</remapping>
+      </ros>
+      <output_type>sensor_msgs/PointCloud2</output_type>
+      <frame_name>velodyne_frame</frame_name>
+      <min_range>0.9</min_range>
+      <max_range>130.0</max_range>
+      <gaussian_noise>0.008</gaussian_noise>
+    </plugin>
+  </sensor>
+</gazebo>
+```
+
+## IMU Simulation
+
+### Inertial Measurement Unit
+
+IMUs are critical for humanoid balance and orientation estimation:
+
+```xml
+<gazebo reference="imu_link">
+  <sensor name="imu_sensor" type="imu">
+    <always_on>true</always_on>
+    <update_rate>100</update_rate>
+    <imu>
+      <angular_velocity>
+        <x>
+          <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>2e-4</stddev>
+            <bias_mean>0.001</bias_mean>
+            <bias_stddev>0.005</bias_stddev>
+          </noise>
+        </x>
+        <y>
+          <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>2e-4</stddev>
+            <bias_mean>0.001</bias_mean>
+            <bias_stddev>0.005</bias_stddev>
+          </noise>
+        </y>
+        <z>
+          <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>2e-4</stddev>
+            <bias_mean>0.001</bias_mean>
+            <bias_stddev>0.005</bias_stddev>
+          </noise>
+        </z>
+      </angular_velocity>
+      <linear_acceleration>
+        <x>
+          <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>1.7e-2</stddev>
+            <bias_mean>0.1</bias_mean>
+            <bias_stddev>0.005</bias_stddev>
+          </noise>
+        </x>
+        <y>
+          <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>1.7e-2</stddev>
+            <bias_mean>0.1</bias_mean>
+            <bias_stddev>0.005</bias_stddev>
+          </noise>
+        </y>
+        <z>
+          <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>1.7e-2</stddev>
+            <bias_mean>0.1</bias_mean>
+            <bias_stddev>0.005</bias_stddev>
+          </noise>
+        </z>
+      </linear_acceleration>
+    </imu>
+    <plugin name="imu_controller" filename="libgazebo_ros_imu.so">
+      <ros>
+        <namespace>/imu</namespace>
+      </ros>
+      <frame_name>imu_link</frame_name>
+      <body_name>imu_link</body_name>
+      <update_rate>100</update_rate>
+      <gaussian_noise>0.01</gaussian_noise>
+    </plugin>
+  </sensor>
+</gazebo>
+```
+
+## Force/Torque Sensor Simulation
+
+### Joint Force/Torque Sensors
+
+Force/torque sensors are essential for manipulation and contact detection:
+
+```xml
+<gazebo reference="left_foot">
+  <sensor name="ft_sensor_left_foot" type="force_torque">
+    <always_on>true</always_on>
+    <update_rate>100</update_rate>
+    <force_torque>
+      <frame>child</frame>
+      <measure_direction>from_parent_toward_child</measure_direction>
+    </force_torque>
+    <plugin name="ft_sensor_controller" filename="libgazebo_ros_ft_sensor.so">
+      <ros>
+        <namespace>/ft_sensors</namespace>
+        <remapping>~/wrench:=left_foot_wrench</remapping>
+      </ros>
+      <frame_name>left_foot</frame_name>
+      <topic>left_foot_wrench</topic>
+    </plugin>
+  </sensor>
+</gazebo>
+```
+
+## GPS Simulation
+
+### Global Positioning for Outdoor Robots
+
+GPS simulation for outdoor humanoid navigation:
+
+```xml
+<gazebo reference="gps_link">
+  <sensor name="navsat" type="gps">
+    <always_on>true</always_on>
+    <update_rate>4</update_rate>
+    <plugin name="navsat_plugin" filename="libgazebo_ros_navsat.so">
+      <ros>
+        <namespace>/gps</namespace>
+      </ros>
+      <frame_name>gps_link</frame_name>
+      <topic>fix</topic>
+      <drift>0.001 0.001 0.001</drift>
+      <gaussian_noise>0.1 0.1 0.1</gaussian_noise>
+      <velocity_drift>0.0001 0.0001 0.0001</velocity_drift>
+      <velocity_gaussian_noise>0.01 0.01 0.01</velocity_gaussian_noise>
+    </plugin>
+  </sensor>
+</gazebo>
+```
+
+## Multi-Sensor Fusion Simulation
+
+### Sensor Coordination and Calibration
+
+Realistic multi-sensor simulation requires proper coordination:
+
+```xml
+<!-- Example of sensor mounting and calibration -->
+<link name="sensor_mount">
+  <visual>
+    <geometry>
+      <box size="0.05 0.05 0.05"/>
+    </geometry>
+  </visual>
+  <collision>
+    <geometry>
+      <box size="0.05 0.05 0.05"/>
+    </geometry>
+  </collision>
+  <inertial>
+    <mass value="0.1"/>
+    <inertia ixx="0.0001" ixy="0" ixz="0" iyy="0.0001" iyz="0" izz="0.0001"/>
+  </inertial>
+</link>
+
+<joint name="camera_mount_joint" type="fixed">
+  <parent link="head"/>
+  <child link="sensor_mount"/>
+  <origin xyz="0.05 0 0" rpy="0 0 0"/>
+</joint>
+
+<!-- Camera mounted on the sensor mount -->
+<joint name="camera_joint" type="fixed">
+  <parent link="sensor_mount"/>
+  <child link="head_camera_frame"/>
+  <origin xyz="0 0 0" rpy="0 0 0"/>
+</joint>
+```
+
+### Calibration and Extrinsics
+
+Proper sensor calibration is crucial for fusion:
+
+```yaml
+# Example sensor calibration file
+# Calibration for head-mounted sensors
+sensor_calibrations:
+  head_camera:
+    # Extrinsic calibration (camera to head link)
+    translation: [0.05, 0.0, 0.1]  # 5cm forward, 10cm up from head center
+    rotation: [0.0, 0.0, 0.0]      # No rotation (camera aligned with head)
+
+  imu:
+    translation: [0.0, 0.0, 0.05]  # 5cm above head center
+    rotation: [0.0, 0.0, 0.0]      # IMU aligned with robot base frame
+
+  lidar:
+    translation: [0.1, 0.0, 0.05]  # 10cm forward, 5cm up from head center
+    rotation: [0.0, 0.0, 0.0]      # LiDAR aligned with robot base frame
+```
+
+## Sensor Noise Modeling
+
+### Realistic Noise Characteristics
+
+Accurate noise modeling is essential for robust perception:
+
+```python
+import numpy as np
+
+class SensorNoiseModel:
+    def __init__(self):
+        # Camera noise parameters
+        self.camera_noise_std = 0.005  # 5mm for depth cameras
+        self.camera_bias = 0.001       # 1mm systematic error
+
+        # IMU noise parameters (typical values for tactical-grade IMU)
+        self.imu_gyro_noise_density = 0.0001  # rad/s/sqrt(Hz)
+        self.imu_accel_noise_density = 0.001  # m/s^2/sqrt(Hz)
+        self.imu_gyro_bias_walk = 0.0001      # rad/s/sqrt(Hz)
+        self.imu_accel_bias_walk = 0.001      # m/s^2/sqrt(Hz)
+
+        # LiDAR noise parameters
+        self.lidar_noise_factor = 0.01  # 1% of distance
+        self.lidar_bias = 0.005         # 5mm systematic error
+
+    def add_camera_noise(self, depth_image):
+        """Add realistic noise to depth camera measurements"""
+        noise = np.random.normal(self.camera_bias, self.camera_noise_std,
+                                depth_image.shape)
+        return depth_image + noise
+
+    def add_imu_noise(self, true_angular_velocity, true_linear_acceleration, dt):
+        """Add realistic noise to IMU measurements"""
+        # Add noise to angular velocity
+        gyro_noise = np.random.normal(0, self.imu_gyro_noise_density / np.sqrt(dt))
+        noisy_angular_vel = true_angular_velocity + gyro_noise
+
+        # Add noise to linear acceleration
+        accel_noise = np.random.normal(0, self.imu_accel_noise_density / np.sqrt(dt))
+        noisy_linear_accel = true_linear_acceleration + accel_noise
+
+        return noisy_angular_vel, noisy_linear_accel
+
+    def add_lidar_noise(self, true_distance):
+        """Add realistic noise to LiDAR measurements"""
+        # Distance-dependent noise
+        noise_std = self.lidar_noise_factor * true_distance + self.lidar_bias
+        noise = np.random.normal(0, noise_std)
+        return true_distance + noise
+```
+
+## Performance Optimization
+
+### Efficient Sensor Simulation
+
+Optimizing sensor simulation for real-time performance:
+
+```xml
+<!-- Optimized camera settings for real-time simulation -->
+<gazebo reference="optimized_camera">
+  <sensor name="fast_camera" type="camera">
+    <update_rate>15</update_rate>  <!-- Lower update rate for performance -->
+    <camera name="fast_camera">
+      <horizontal_fov>1.047</horizontal_fov>
+      <image>
+        <width>320</width>    <!-- Lower resolution for performance -->
+        <height>240</height>
+        <format>R8G8B8</format>
+      </image>
+      <clip>
+        <near>0.1</near>
+        <far>20</far>  <!-- Reduce far clip for performance -->
+      </clip>
+    </camera>
+  </sensor>
+</gazebo>
+```
+
+### Sensor Prioritization
+
+Prioritizing sensors based on importance for humanoid tasks:
+
+```python
+# Sensor priority for different humanoid tasks
+SENSOR_PRIORITIES = {
+    'walking': {
+        'imu': 1,           # Critical for balance
+        'joint_encoders': 2, # Important for gait
+        'force_torque': 3,  # Useful for contact detection
+        'lidar': 4,         # Helpful for navigation
+        'camera': 5         # Nice to have for perception
+    },
+    'manipulation': {
+        'force_torque': 1,  # Critical for control
+        'camera': 2,        # Important for visual feedback
+        'joint_encoders': 3, # Important for positioning
+        'imu': 4,           # Helpful for stability
+        'lidar': 5          # Less relevant
+    },
+    'navigation': {
+        'lidar': 1,         # Critical for mapping/obstacle detection
+        'camera': 2,        # Important for visual navigation
+        'imu': 3,           # Important for odometry
+        'joint_encoders': 4, # Helpful for dead reckoning
+        'gps': 5            # Outdoor navigation
+    }
+}
+```
+
+## Sensor Validation and Testing
+
+### Ground Truth Comparison
+
+Validating sensor simulation against ground truth:
+
+```python
+class SensorValidator:
+    def __init__(self):
+        self.ground_truth = {}  # Store ground truth values
+        self.sensor_measurements = {}  # Store simulated measurements
+
+    def validate_camera(self, ground_truth_points, measured_points):
+        """Validate camera measurements against ground truth"""
+        # Calculate reprojection errors
+        errors = np.linalg.norm(ground_truth_points - measured_points, axis=1)
+        mean_error = np.mean(errors)
+        std_error = np.std(errors)
+
+        print(f"Camera validation - Mean error: {mean_error:.3f}m, Std: {std_error:.3f}m")
+        return mean_error < 0.05  # Acceptable error threshold
+
+    def validate_lidar(self, ground_truth_distances, measured_distances):
+        """Validate LiDAR measurements against ground truth"""
+        # Calculate distance errors
+        errors = np.abs(ground_truth_distances - measured_distances)
+        mean_error = np.mean(errors)
+        std_error = np.std(errors)
+
+        print(f"LiDAR validation - Mean error: {mean_error:.3f}m, Std: {std_error:.3f}m")
+        return mean_error < 0.1  # Acceptable error threshold
+
+    def validate_imu(self, ground_truth_imu, measured_imu):
+        """Validate IMU measurements against ground truth"""
+        # Calculate orientation and acceleration errors
+        orientation_errors = np.abs(ground_truth_imu['orientation'] - measured_imu['orientation'])
+        acceleration_errors = np.linalg.norm(
+            ground_truth_imu['acceleration'] - measured_imu['acceleration'], axis=1)
+
+        print(f"IMU validation - Orientation error: {np.mean(orientation_errors):.3f}rad, "
+              f"Acceleration error: {np.mean(acceleration_errors):.3f}m/s²")
+        return (np.mean(orientation_errors) < 0.1 and np.mean(acceleration_errors) < 0.5)
+```
+
+## Troubleshooting Common Issues
+
+### Sensor Data Quality Issues
+
+Common problems and solutions:
+
+- **Noisy data**: Increase sensor quality parameters or add proper filtering
+- **Missing data**: Check sensor mounting and field of view
+- **Delayed data**: Optimize simulation update rates and processing pipelines
+- **Inconsistent data**: Verify coordinate frame transformations
+
+### Performance Issues
+
+- **Slow simulation**: Reduce sensor update rates or resolutions
+- **High CPU usage**: Optimize sensor plugins and reduce unnecessary sensors
+- **Memory issues**: Stream sensor data efficiently and avoid storing unnecessary buffers
+
+## Summary
+
+Sensor simulation is fundamental to the Digital Twin concept in humanoid robotics, providing realistic perception capabilities for development and testing. By accurately modeling various sensor types—cameras, LiDAR, IMUs, force/torque sensors, and GPS—along with their noise characteristics and mounting configurations, developers can create robust perception and control systems that transfer effectively to real robots.
+
+Proper sensor fusion, calibration, and validation ensure that simulated sensor data closely matches real-world behavior, enabling safe and efficient development of humanoid robot systems.
+
+## References
+
+- Gazebo Sensor Documentation: https://classic.gazebosim.org/tutorials?tut=ros_gzplugins_sensors
+- ROS Sensor Message Types: https://wiki.ros.org/sensor_msgs
+- Sensor Calibration Best Practices: https://wiki.ros.org/camera_calibration

@@ -1,0 +1,1306 @@
+---
+title: Advanced NVIDIA Isaac Concepts - Perception and Training
+sidebar_position: 2
+---
+
+# Advanced NVIDIA Isaac Concepts: Perception and Training
+
+## Learning Objectives
+
+By the end of this chapter, you will be able to:
+- Implement advanced perception pipelines using Isaac ROS packages
+- Create and optimize deep learning models for robotics applications
+- Set up reinforcement learning environments in Isaac Sim
+- Develop multi-modal perception systems for humanoid robots
+- Optimize performance for real-time AI applications on humanoid robots
+
+## Prerequisites
+
+Before starting this chapter, you should have:
+- Understanding of basic Isaac platform concepts
+- Experience with deep learning frameworks (PyTorch/TensorFlow)
+- Knowledge of ROS 2 and robotics concepts
+- Familiarity with NVIDIA GPU computing and CUDA
+- Understanding of computer vision and perception algorithms
+
+## Advanced Perception Pipelines
+
+### Isaac ROS NITROS: Network Interface for Trustworthy and Robust Orchestration of Streams
+
+NITROS is a key component of Isaac ROS that enables high-performance data streaming between perception nodes:
+
+```python
+# Advanced perception pipeline using NITROS
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
+from sensor_msgs.msg import Image, CameraInfo
+from stereo_msgs.msg import DisparityImage
+from cv_bridge import CvBridge
+import numpy as np
+import torch
+import torch_tensorrt
+
+class AdvancedPerceptionPipeline(Node):
+    def __init__(self):
+        super().__init__('advanced_perception_pipeline')
+
+        # QoS profiles for different data types
+        sensor_qos = QoSProfile(
+            depth=10,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            durability=DurabilityPolicy.VOLATILE
+        )
+
+        control_qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.VOLATILE
+        )
+
+        # Multi-camera input
+        self.left_camera_sub = self.create_subscription(
+            Image, '/stereo_camera/left/image_rect_color',
+            self.left_camera_callback, sensor_qos
+        )
+        self.right_camera_sub = self.create_subscription(
+            Image, '/stereo_camera/right/image_rect_color',
+            self.right_camera_callback, sensor_qos
+        )
+        self.camera_info_sub = self.create_subscription(
+            CameraInfo, '/stereo_camera/left/camera_info',
+            self.camera_info_callback, sensor_qos
+        )
+
+        # Publishers for processed data
+        self.disparity_pub = self.create_publisher(
+            DisparityImage, '/stereo/disparity', sensor_qos
+        )
+        self.depth_pub = self.create_publisher(
+            Image, '/stereo/depth', sensor_qos
+        )
+        self.detection_pub = self.create_publisher(
+            Detection2DArray, '/detections/processed', control_qos
+        )
+
+        # Initialize components
+        self.bridge = CvBridge()
+        self.camera_info = None
+        self.left_image = None
+        self.right_image = None
+
+        # Initialize optimized models
+        self.initialize_optimized_models()
+
+        self.get_logger().info('Advanced Perception Pipeline initialized')
+
+    def initialize_optimized_models(self):
+        """Initialize TensorRT-optimized models for perception"""
+        # Object detection model
+        try:
+            # Load and optimize object detection model with TensorRT
+            self.detection_model = torch.jit.load('/path/to/optimized_model.pt')
+            self.detection_model = torch_tensorrt.compile(
+                self.detection_model,
+                inputs=[torch_tensorrt.Input((1, 3, 480, 640))],
+                enabled_precisions={torch.float}
+            )
+            self.get_logger().info('Detection model optimized with TensorRT')
+        except Exception as e:
+            self.get_logger().warn(f'Could not optimize detection model: {e}')
+            # Fallback to regular model
+            self.detection_model = self.load_fallback_model()
+
+        # Stereo matching model
+        try:
+            self.stereo_model = torch.jit.load('/path/to/stereo_model.pt')
+            self.stereo_model = torch_tensorrt.compile(
+                self.stereo_model,
+                inputs=[torch_tensorrt.Input((1, 3, 480, 640)),
+                        torch_tensorrt.Input((1, 3, 480, 640))],
+                enabled_precisions={torch.float}
+            )
+            self.get_logger().info('Stereo model optimized with TensorRT')
+        except Exception as e:
+            self.get_logger().warn(f'Could not optimize stereo model: {e}')
+
+    def left_camera_callback(self, msg):
+        """Process left camera image"""
+        self.left_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+
+        # Process stereo pair if both images are available
+        if self.right_image is not None:
+            self.process_stereo_pair(msg.header)
+
+    def right_camera_callback(self, msg):
+        """Process right camera image"""
+        self.right_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+
+        # Process stereo pair if both images are available
+        if self.left_image is not None:
+            self.process_stereo_pair(msg.header)
+
+    def camera_info_callback(self, msg):
+        """Store camera calibration information"""
+        self.camera_info = msg
+
+    def process_stereo_pair(self, header):
+        """Process stereo image pair for depth estimation"""
+        try:
+            # Convert images to tensors for GPU processing
+            left_tensor = torch.from_numpy(self.left_image).permute(2, 0, 1).float().unsqueeze(0).cuda() / 255.0
+            right_tensor = torch.from_numpy(self.right_image).permute(2, 0, 1).float().unsqueeze(0).cuda() / 255.0
+
+            # Run stereo matching with optimized model
+            with torch.no_grad():
+                disparity = self.stereo_model(left_tensor, right_tensor)
+
+            # Convert to disparity message
+            disparity_msg = DisparityImage()
+            disparity_msg.header = header
+            disparity_msg.image = self.bridge.cv2_to_imgmsg(
+                disparity.squeeze().cpu().numpy(), "32FC1"
+            )
+
+            # Calculate depth from disparity
+            if self.camera_info:
+                baseline = self.camera_info.p[3]  # Tx (baseline) from projection matrix
+                focal_length = self.camera_info.p[0]  # fx from projection matrix
+                depth = (baseline * focal_length) / (disparity + 1e-6)  # Avoid division by zero
+
+                depth_msg = self.bridge.cv2_to_imgmsg(depth.squeeze().cpu().numpy(), "32FC1")
+                depth_msg.header = header
+                self.depth_pub.publish(depth_msg)
+
+            self.disparity_pub.publish(disparity_msg)
+
+        except Exception as e:
+            self.get_logger().error(f'Error in stereo processing: {e}')
+
+    def load_fallback_model(self):
+        """Load a simple fallback model if TensorRT optimization fails"""
+        # This would be a simpler model that can run without TensorRT
+        class SimpleModel(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                # Simple model definition
+                pass
+
+            def forward(self, x):
+                # Simple forward pass
+                return x
+
+        return SimpleModel()
+
+def main(args=None):
+    rclpy.init(args=args)
+    pipeline = AdvancedPerceptionPipeline()
+
+    try:
+        rclpy.spin(pipeline)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        pipeline.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+### Multi-Modal Perception Integration
+
+Humanoid robots require integration of multiple sensor modalities for comprehensive perception:
+
+```python
+# Multi-modal perception fusion node
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image, PointCloud2, LaserScan, Imu
+from geometry_msgs.msg import PoseStamped, Twist
+from std_msgs.msg import Float32
+import numpy as np
+import open3d as o3d
+from scipy.spatial.transform import Rotation as R
+
+class MultiModalPerceptionFusion(Node):
+    def __init__(self):
+        super().__init__('multi_modal_perception')
+
+        # Multiple sensor subscriptions
+        self.camera_sub = self.create_subscription(
+            Image, '/head_camera/image_raw', self.camera_callback, 10
+        )
+        self.lidar_sub = self.create_subscription(
+            PointCloud2, '/velodyne_points', self.lidar_callback, 10
+        )
+        self.imu_sub = self.create_subscription(
+            Imu, '/imu/data', self.imu_callback, 10
+        )
+        self.scan_sub = self.create_subscription(
+            LaserScan, '/scan', self.scan_callback, 10
+        )
+
+        # Publishers for fused perception
+        self.semantic_map_pub = self.create_publisher(
+            OccupancyGrid, '/semantic_map', 10
+        )
+        self.fused_objects_pub = self.create_publisher(
+            Detection3DArray, '/fused_objects', 10
+        )
+        self.traversability_pub = self.create_publisher(
+            OccupancyGrid, '/traversability_map', 10
+        )
+
+        # Initialize perception components
+        self.camera_data = None
+        self.lidar_data = None
+        self.imu_data = None
+        self.scan_data = None
+
+        # Initialize fusion algorithms
+        self.initialize_fusion_algorithms()
+
+        self.get_logger().info('Multi-Modal Perception Fusion initialized')
+
+    def initialize_fusion_algorithms(self):
+        """Initialize algorithms for sensor fusion"""
+        # Initialize 3D object detection fusion
+        self.object_detector_2d = self.initialize_2d_detector()
+        self.object_detector_3d = self.initialize_3d_detector()
+
+        # Initialize localization fusion
+        self.localization_fusion = self.initialize_localization_fusion()
+
+    def camera_callback(self, msg):
+        """Process camera data"""
+        # Convert to OpenCV image
+        cv_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+        self.camera_data = {
+            'image': cv_image,
+            'timestamp': msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        }
+
+        # Run 2D object detection
+        detections_2d = self.object_detector_2d.detect(cv_image)
+
+        # Fuse with other sensors if available
+        self.fuse_camera_with_lidar(detections_2d, msg.header)
+
+    def lidar_callback(self, msg):
+        """Process LiDAR data"""
+        # Convert PointCloud2 to Open3D format
+        points = self.pointcloud2_to_array(msg)
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(points[:, :3])
+
+        if points.shape[1] > 3:
+            pcd.colors = o3d.utility.Vector3dVector(points[:, 3:6] / 255.0)
+
+        self.lidar_data = {
+            'pointcloud': pcd,
+            'timestamp': msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        }
+
+        # Run 3D object detection
+        detections_3d = self.object_detector_3d.detect(pcd)
+        self.publish_3d_detections(detections_3d, msg.header)
+
+    def imu_callback(self, msg):
+        """Process IMU data for state estimation"""
+        self.imu_data = {
+            'angular_velocity': [msg.angular_velocity.x, msg.angular_velocity.y, msg.angular_velocity.z],
+            'linear_acceleration': [msg.linear_acceleration.x, msg.linear_acceleration.y, msg.linear_acceleration.z],
+            'orientation': [msg.orientation.x, msg.orientation.y, msg.orientation.z, msg.orientation.w],
+            'timestamp': msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        }
+
+        # Update state estimation
+        self.update_state_estimation()
+
+    def scan_callback(self, msg):
+        """Process laser scan data"""
+        self.scan_data = {
+            'ranges': np.array(msg.ranges),
+            'angle_min': msg.angle_min,
+            'angle_max': msg.angle_max,
+            'angle_increment': msg.angle_increment,
+            'timestamp': msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        }
+
+        # Create local occupancy grid
+        occupancy_grid = self.create_occupancy_grid_from_scan(msg)
+        self.publish_local_map(occupancy_grid, msg.header)
+
+    def fuse_camera_with_lidar(self, detections_2d, header):
+        """Fuse 2D camera detections with 3D LiDAR data"""
+        if self.lidar_data is None:
+            return
+
+        # Project 3D points to 2D image plane
+        # This is a simplified example - in practice, you'd use camera calibration
+        pcd = self.lidar_data['pointcloud']
+        points_3d = np.asarray(pcd.points)
+
+        # For each 2D detection, find corresponding 3D points
+        fused_detections = []
+
+        for detection in detections_2d:
+            # Get bounding box coordinates
+            x, y, w, h = detection['bbox']
+
+            # Find 3D points that project to this region
+            # (simplified projection - in practice, use proper camera model)
+            relevant_points = []
+            for point in points_3d:
+                # Project 3D point to 2D (simplified)
+                u = int(point[0] / (point[2] + 1e-6) * 500 + 320)  # fx=500, cx=320
+                v = int(point[1] / (point[2] + 1e-6) * 500 + 240)  # fy=500, cy=240
+
+                if x <= u <= x + w and y <= v <= y + h:
+                    relevant_points.append(point)
+
+            if relevant_points:
+                # Create 3D bounding box from relevant points
+                points_array = np.array(relevant_points)
+                min_point = np.min(points_array, axis=0)
+                max_point = np.max(points_array, axis=0)
+
+                fused_detection = {
+                    '2d_bbox': detection['bbox'],
+                    '3d_bbox': [min_point, max_point],
+                    'confidence': detection['confidence'],
+                    'class': detection['class']
+                }
+                fused_detections.append(fused_detection)
+
+        # Publish fused detections
+        self.publish_fused_detections(fused_detections, header)
+
+    def initialize_2d_detector(self):
+        """Initialize 2D object detector"""
+        class Simple2Ddetector:
+            def detect(self, image):
+                # This would be replaced with actual Isaac ROS detector
+                # For demonstration, return simple mock detections
+                return [
+                    {'bbox': [100, 100, 200, 200], 'confidence': 0.8, 'class': 'person'},
+                    {'bbox': [300, 200, 150, 150], 'confidence': 0.7, 'class': 'object'}
+                ]
+
+        return Simple2Ddetector()
+
+    def initialize_3d_detector(self):
+        """Initialize 3D object detector"""
+        class Simple3Ddetector:
+            def detect(self, pointcloud):
+                # This would be replaced with actual 3D detector
+                # For demonstration, return mock 3D detections
+                return [
+                    {'bbox': [np.array([0, 0, 0]), np.array([1, 1, 1])], 'confidence': 0.8, 'class': 'person'},
+                    {'bbox': [np.array([2, 0, 0]), np.array([3, 1, 1])], 'confidence': 0.7, 'class': 'object'}
+                ]
+
+        return Simple3Ddetector()
+
+    def update_state_estimation(self):
+        """Update robot state estimation using sensor fusion"""
+        if self.imu_data:
+            # Simple IMU-based state estimation
+            # In practice, this would use more sophisticated filtering (EKF, UKF, etc.)
+            angular_vel = self.imu_data['angular_velocity']
+            linear_acc = self.imu_data['linear_acceleration']
+
+            # Integrate to get velocity and position (simplified)
+            # This is a basic example - real implementation would use proper integration and filtering
+
+    def pointcloud2_to_array(self, cloud_msg):
+        """Convert PointCloud2 message to numpy array"""
+        import sensor_msgs.point_cloud2 as pc2
+        points_list = []
+        for point in pc2.read_points(cloud_msg, skip_nans=True):
+            points_list.append([point[0], point[1], point[2], point[3] if len(point) > 3 else 0,
+                               point[4] if len(point) > 4 else 0, point[5] if len(point) > 5 else 0])
+        return np.array(points_list)
+
+def main(args=None):
+    rclpy.init(args=args)
+    fusion_node = MultiModalPerceptionFusion()
+
+    try:
+        rclpy.spin(fusion_node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        fusion_node.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+## Isaac Sim Advanced Features
+
+### Custom Environments and Tasks
+
+Creating custom environments in Isaac Sim for specific humanoid tasks:
+
+```python
+# Custom humanoid task environment in Isaac Sim
+import omni
+from omni.isaac.core import World
+from omni.isaac.core.utils.stage import add_reference_to_stage
+from omni.isaac.core.utils.nucleus import get_assets_root_path
+from omni.isaac.core.utils.prims import get_prim_at_path
+from omni.isaac.core.articulations import Articulation
+from omni.isaac.core.utils.stage import set_stage_units
+import numpy as np
+
+class HumanoidTaskEnvironment:
+    def __init__(self, world: World, robot_path: str):
+        self.world = world
+        self.robot_path = robot_path
+        self.robot = None
+        self.task_objects = []
+        self.reset_positions = {}
+
+        # Initialize the environment
+        self.setup_environment()
+
+    def setup_environment(self):
+        """Setup the humanoid task environment"""
+        # Set stage units to meters
+        set_stage_units("meter")
+
+        # Add humanoid robot
+        self.robot = self.world.scene.add(
+            Articulation(
+                prim_path="/World/Robot",
+                name="humanoid_robot",
+                usd_path=self.robot_path
+            )
+        )
+
+        # Add task-specific objects
+        self.add_task_objects()
+
+        # Store initial positions for resets
+        self.store_reset_positions()
+
+    def add_task_objects(self):
+        """Add objects specific to the humanoid task"""
+        # Example: Add objects for manipulation task
+        from omni.isaac.core.objects import DynamicCuboid
+
+        # Add target object to manipulate
+        target_object = self.world.scene.add(
+            DynamicCuboid(
+                prim_path="/World/TargetObject",
+                name="target_object",
+                position=np.array([0.5, 0.0, 0.1]),
+                size=0.1,
+                mass=0.5,
+                color=np.array([1.0, 0.0, 0.0])  # Red
+            )
+        )
+        self.task_objects.append(target_object)
+
+        # Add goal location
+        from omni.isaac.core.prims import GeometryPrim
+        goal_zone = self.world.scene.add(
+            GeometryPrim(
+                prim_path="/World/GoalZone",
+                name="goal_zone",
+                position=np.array([0.8, 0.3, 0.05]),
+                orientation=np.array([0, 0, 0, 1])
+            )
+        )
+        # Make it a visual-only primitive (no collision)
+        goal_zone.set_visibility(True)
+
+    def store_reset_positions(self):
+        """Store positions for environment reset"""
+        # Store robot position
+        self.reset_positions['robot'] = self.robot.get_world_pose()
+
+        # Store object positions
+        for i, obj in enumerate(self.task_objects):
+            self.reset_positions[f'object_{i}'] = obj.get_world_pose()
+
+    def reset_environment(self):
+        """Reset the environment to initial state"""
+        # Reset robot
+        self.robot.set_world_pose(*self.reset_positions['robot'])
+
+        # Reset objects
+        for i, obj in enumerate(self.task_objects):
+            obj.set_world_pose(*self.reset_positions[f'object_{i}'])
+
+    def get_observation(self):
+        """Get current environment observation"""
+        # Get robot state
+        joint_positions = self.robot.get_joints_state().position
+        joint_velocities = self.robot.get_joints_state().velocity
+        ee_pose = self.robot.get_end_effectors_frame_state().get_poses()
+
+        # Get object states
+        object_states = []
+        for obj in self.task_objects:
+            pos, quat = obj.get_world_pose()
+            lin_vel, ang_vel = obj.get_linear_velocity(), obj.get_angular_velocity()
+            object_states.append({
+                'position': pos,
+                'orientation': quat,
+                'linear_velocity': lin_vel,
+                'angular_velocity': ang_vel
+            })
+
+        # Combine into observation
+        observation = {
+            'joint_positions': joint_positions,
+            'joint_velocities': joint_velocities,
+            'end_effector_pose': ee_pose,
+            'object_states': object_states,
+            'robot_pose': self.robot.get_world_pose()
+        }
+
+        return observation
+
+    def calculate_reward(self, action, observation):
+        """Calculate reward for the current step"""
+        reward = 0.0
+
+        # Example reward components for manipulation task
+        target_obj = self.task_objects[0]
+        target_pos = target_obj.get_world_pose()[0]
+        ee_pos = observation['end_effector_pose'][0]
+
+        # Distance to target reward
+        dist_to_target = np.linalg.norm(target_pos - ee_pos)
+        reward -= dist_to_target * 0.1  # Negative reward for distance
+
+        # If close enough, provide positive reward
+        if dist_to_target < 0.1:
+            reward += 1.0
+
+        # Additional rewards for successful manipulation would go here
+        # (e.g., lifting object, moving to goal zone, etc.)
+
+        return reward
+
+    def is_done(self, observation):
+        """Check if the episode is done"""
+        # Example termination conditions
+        target_obj = self.task_objects[0]
+        target_pos = target_obj.get_world_pose()[0]
+        goal_pos = np.array([0.8, 0.3, 0.05])
+
+        # Check if object reached goal
+        dist_to_goal = np.linalg.norm(target_pos - goal_pos)
+        if dist_to_goal < 0.1:
+            return True
+
+        # Check for robot falling (simplified)
+        robot_pos = observation['robot_pose'][0]
+        if robot_pos[2] < 0.2:  # Robot fell down
+            return True
+
+        return False
+```
+
+### Reinforcement Learning in Isaac Sim
+
+Implementing reinforcement learning for humanoid tasks:
+
+```python
+# Reinforcement learning training script for humanoid tasks
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import numpy as np
+from collections import deque
+import random
+
+class HumanoidPPOAgent:
+    def __init__(self, state_dim, action_dim, lr=3e-4, gamma=0.99, eps_clip=0.2):
+        self.state_dim = state_dim
+        self.action_dim = action_dim
+        self.gamma = gamma
+        self.eps_clip = eps_clip
+
+        # Actor-Critic networks
+        self.actor = self.build_actor_network()
+        self.critic = self.build_critic_network()
+
+        self.optimizer_actor = optim.Adam(self.actor.parameters(), lr=lr)
+        self.optimizer_critic = optim.Adam(self.critic.parameters(), lr=lr)
+
+        # Experience buffer
+        self.buffer = deque(maxlen=10000)
+
+    def build_actor_network(self):
+        """Build the actor network for policy"""
+        class Actor(nn.Module):
+            def __init__(self, state_dim, action_dim):
+                super().__init__()
+                self.fc1 = nn.Linear(state_dim, 512)
+                self.fc2 = nn.Linear(512, 512)
+                self.fc3 = nn.Linear(512, 256)
+                self.mean = nn.Linear(256, action_dim)
+                self.log_std = nn.Parameter(torch.zeros(action_dim))
+
+            def forward(self, state):
+                x = torch.relu(self.fc1(state))
+                x = torch.relu(self.fc2(x))
+                x = torch.relu(self.fc3(x))
+                mean = torch.tanh(self.mean(x))  # Actions between -1 and 1
+                std = torch.exp(self.log_std)
+                return mean, std
+
+        return Actor(self.state_dim, self.action_dim)
+
+    def build_critic_network(self):
+        """Build the critic network for value estimation"""
+        class Critic(nn.Module):
+            def __init__(self, state_dim):
+                super().__init__()
+                self.fc1 = nn.Linear(state_dim, 512)
+                self.fc2 = nn.Linear(512, 512)
+                self.fc3 = nn.Linear(512, 256)
+                self.value = nn.Linear(256, 1)
+
+            def forward(self, state):
+                x = torch.relu(self.fc1(state))
+                x = torch.relu(self.fc2(x))
+                x = torch.relu(self.fc3(x))
+                return self.value(x)
+
+        return Critic(self.state_dim)
+
+    def select_action(self, state):
+        """Select action using current policy"""
+        state_tensor = torch.FloatTensor(state).unsqueeze(0)
+        mean, std = self.actor(state_tensor)
+
+        # Sample action from normal distribution
+        dist = torch.distributions.Normal(mean, std)
+        action = dist.sample()
+        log_prob = dist.log_prob(action).sum(dim=-1)
+
+        return action.detach().cpu().numpy()[0], log_prob.detach().cpu().numpy()[0]
+
+    def evaluate(self, state, action):
+        """Evaluate state-action pair"""
+        state_tensor = torch.FloatTensor(state)
+        action_tensor = torch.FloatTensor(action)
+
+        mean, std = self.actor(state_tensor)
+        dist = torch.distributions.Normal(mean, std)
+        log_prob = dist.log_prob(action_tensor).sum(dim=-1)
+        entropy = dist.entropy().sum(dim=-1)
+
+        state_value = self.critic(state_tensor).squeeze()
+
+        return log_prob, state_value, entropy
+
+    def update(self, states, actions, rewards, log_probs, state_values, masks):
+        """Update the policy using PPO"""
+        # Convert to tensors
+        states = torch.FloatTensor(states)
+        actions = torch.FloatTensor(actions)
+        rewards = torch.FloatTensor(rewards)
+        old_log_probs = torch.FloatTensor(log_probs)
+        old_state_values = torch.FloatTensor(state_values)
+        masks = torch.FloatTensor(masks)
+
+        # Calculate advantages
+        advantages = rewards - old_state_values.detach()
+        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+
+        # Calculate new log probabilities and state values
+        new_log_probs, new_state_values, entropy = self.evaluate(states, actions)
+
+        # Calculate ratios
+        ratios = torch.exp(new_log_probs - old_log_probs.detach())
+
+        # Calculate surrogate losses
+        surr1 = ratios * advantages
+        surr2 = torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages
+        actor_loss = -torch.min(surr1, surr2).mean()
+
+        # Critic loss
+        critic_loss = (new_state_values - rewards).pow(2).mean()
+
+        # Update networks
+        self.optimizer_actor.zero_grad()
+        actor_loss.backward()
+        self.optimizer_actor.step()
+
+        self.optimizer_critic.zero_grad()
+        critic_loss.backward()
+        self.optimizer_critic.step()
+
+def train_humanoid_rl():
+    """Training loop for humanoid RL"""
+    # This would be connected to the Isaac Sim environment
+    # For demonstration, we'll create a mock environment
+
+    # Mock environment parameters
+    state_dim = 48  # Example: joint positions, velocities, IMU data, etc.
+    action_dim = 24  # Example: joint commands for humanoid
+
+    # Initialize agent
+    agent = HumanoidPPOAgent(state_dim, action_dim)
+
+    # Training parameters
+    max_episodes = 10000
+    max_steps = 1000
+    update_timestep = 2000  # Update policy every 2000 timesteps
+
+    # Training loop
+    for episode in range(max_episodes):
+        state = np.random.random(state_dim)  # Mock initial state
+        episode_reward = 0
+        timestep = 0
+
+        for step in range(max_steps):
+            # Select action
+            action, log_prob = agent.select_action(state)
+
+            # In real implementation, this would interact with Isaac Sim environment
+            # next_state, reward, done = env.step(action)
+            # For mock:
+            next_state = state + np.random.normal(0, 0.1, state_dim)  # Mock next state
+            reward = np.random.random()  # Mock reward
+            done = False  # Mock done flag
+
+            # Store experience
+            agent.buffer.append((state, action, reward, log_prob, 0))  # 0 for value
+
+            state = next_state
+            episode_reward += reward
+            timestep += 1
+
+            # Update policy if enough timesteps collected
+            if timestep % update_timestep == 0:
+                # Prepare batch data
+                states, actions, rewards, log_probs, _ = zip(*list(agent.buffer))
+
+                # Calculate returns (simplified)
+                returns = []
+                R = 0
+                for r in reversed(rewards):
+                    R = r + agent.gamma * R
+                    returns.insert(0, R)
+
+                # Normalize returns
+                returns = torch.tensor(returns)
+                returns = (returns - returns.mean()) / (returns.std() + 1e-8)
+
+                # Update agent
+                agent.update(states, actions, returns.numpy(), log_probs,
+                           [0]*len(rewards), [1]*len(rewards))
+
+                # Clear buffer
+                agent.buffer.clear()
+
+            if done:
+                break
+
+        # Print progress
+        if episode % 100 == 0:
+            print(f"Episode {episode}, Average Reward: {episode_reward:.2f}")
+
+# Example usage in Isaac Sim
+def setup_isaac_training():
+    """Setup Isaac Sim for RL training"""
+    from omni.isaac.core import World
+    from omni.isaac.core.utils.stage import add_reference_to_stage
+
+    # Create world
+    world = World(stage_units_in_meters=1.0)
+
+    # Add robot and environment
+    # This would use the HumanoidTaskEnvironment class defined earlier
+
+    # Setup RL training loop
+    # train_humanoid_rl()  # This would run in the simulation loop
+
+if __name__ == "__main__":
+    # This would typically run in Isaac Sim environment
+    print("Isaac RL Training Setup")
+```
+
+## Isaac ROS Advanced Perception
+
+### Isaac ROS DNN Inference Pipeline
+
+```python
+# Advanced DNN inference pipeline using Isaac ROS
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image
+from vision_msgs.msg import Detection2DArray, ObjectHypothesisWithPose
+from std_msgs.msg import Header
+from cv_bridge import CvBridge
+import torch
+import torch_tensorrt
+import numpy as np
+import time
+
+class IsaacDNNInference(Node):
+    def __init__(self):
+        super().__init__('isaac_dnn_inference')
+
+        # Create subscriber and publisher
+        self.image_sub = self.create_subscription(
+            Image, '/camera/image_raw', self.image_callback, 10
+        )
+        self.detection_pub = self.create_publisher(
+            Detection2DArray, '/detections/dnn', 10
+        )
+
+        # Initialize components
+        self.bridge = CvBridge()
+
+        # Initialize optimized DNN model
+        self.initialize_optimized_model()
+
+        # Performance monitoring
+        self.inference_times = deque(maxlen=100)
+
+        self.get_logger().info('Isaac DNN Inference initialized')
+
+    def initialize_optimized_model(self):
+        """Initialize TensorRT-optimized DNN model"""
+        try:
+            # Load pre-trained model (example: YOLOv8)
+            # In practice, this would load a model from Isaac ROS or custom trained model
+            self.model = torch.jit.load('/path/to/trt_optimized_model.ts')
+
+            # Set to evaluation mode
+            self.model.eval()
+
+            # Move to GPU
+            self.model.cuda()
+
+            self.get_logger().info('DNN model loaded and optimized')
+            self.model_loaded = True
+
+        except Exception as e:
+            self.get_logger().error(f'Failed to load optimized model: {e}')
+            self.model_loaded = False
+
+    def image_callback(self, msg):
+        """Process image with DNN inference"""
+        if not self.model_loaded:
+            return
+
+        try:
+            # Convert ROS image to OpenCV
+            cv_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+
+            # Preprocess image for model
+            input_tensor = self.preprocess_image(cv_image)
+
+            # Run inference
+            start_time = time.time()
+            with torch.no_grad():
+                outputs = self.model(input_tensor)
+            inference_time = time.time() - start_time
+
+            # Record performance
+            self.inference_times.append(inference_time)
+
+            # Process outputs
+            detections = self.process_outputs(outputs, cv_image.shape, msg.header)
+
+            # Publish detections
+            self.detection_pub.publish(detections)
+
+            # Log performance
+            avg_time = np.mean(self.inference_times) if self.inference_times else 0
+            fps = 1.0 / avg_time if avg_time > 0 else 0
+
+            if len(self.inference_times) % 50 == 0:
+                self.get_logger().info(
+                    f'DNN Inference: {fps:.1f} FPS, '
+                    f'Avg time: {avg_time*1000:.1f}ms'
+                )
+
+        except Exception as e:
+            self.get_logger().error(f'Error in DNN inference: {e}')
+
+    def preprocess_image(self, image):
+        """Preprocess image for DNN inference"""
+        # Resize image to model input size (example: 640x640)
+        input_size = (640, 640)
+        resized = cv2.resize(image, input_size)
+
+        # Convert BGR to RGB
+        rgb_image = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+
+        # Normalize to [0, 1] and convert to tensor
+        normalized = rgb_image.astype(np.float32) / 255.0
+
+        # Change to CHW format (channels, height, width)
+        tensor = np.transpose(normalized, (2, 0, 1))
+
+        # Add batch dimension
+        tensor = np.expand_dims(tensor, axis=0)
+
+        # Convert to torch tensor and move to GPU
+        torch_tensor = torch.from_numpy(tensor).cuda()
+
+        return torch_tensor
+
+    def process_outputs(self, outputs, original_shape, header):
+        """Process DNN outputs into vision_msgs format"""
+        # This would depend on the specific model architecture
+        # Example for YOLO-style output
+        height, width = original_shape[:2]
+
+        # Parse outputs (simplified - actual parsing would depend on model)
+        # outputs is typically [batch, num_detections, 6] where last dim is [x1, y1, x2, y2, conf, class_id]
+
+        # Create detection message
+        detection_array = Detection2DArray()
+        detection_array.header = header
+
+        # Process each detection
+        for detection in outputs[0]:  # Assuming batch size of 1
+            if detection[4] > 0.5:  # Confidence threshold
+                vision_detection = Detection2D()
+                vision_detection.header = header
+
+                # Convert normalized coordinates to image coordinates
+                x1 = int(detection[0] * width)
+                y1 = int(detection[1] * height)
+                x2 = int(detection[2] * width)
+                y2 = int(detection[3] * height)
+
+                # Set bounding box
+                center_x = (x1 + x2) / 2
+                center_y = (y1 + y2) / 2
+                bbox_width = x2 - x1
+                bbox_height = y2 - y1
+
+                vision_detection.bbox.center.x = center_x
+                vision_detection.bbox.center.y = center_y
+                vision_detection.bbox.size_x = bbox_width
+                vision_detection.bbox.size_y = bbox_height
+
+                # Set detection result
+                result = ObjectHypothesisWithPose()
+                result.hypothesis.class_id = str(int(detection[5]))  # Class ID
+                result.hypothesis.score = float(detection[4])  # Confidence
+                vision_detection.results.append(result)
+
+                detection_array.detections.append(vision_detection)
+
+        return detection_array
+
+def main(args=None):
+    rclpy.init(args=args)
+    inference_node = IsaacDNNInference()
+
+    try:
+        rclpy.spin(inference_node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        inference_node.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+## Isaac Lab for Advanced Learning
+
+### Isaac Lab Locomotion Training Example
+
+```python
+# Isaac Lab locomotion training example
+import omni
+from omni.isaac.kit import SimulationApp
+from omni.isaac.core import World
+from omni.isaac.core.utils.stage import add_reference_to_stage
+from omni.isaac.core.articulations import Articulation
+from omni.isaac.core.utils.nucleus import get_assets_root_path
+import torch
+import numpy as np
+
+# Initialize simulation application
+config = {
+    "headless": False,
+    "rendering_mode": 1,  # Use 0 for headless, 1 for GUI
+    "experience": f"{get_assets_root_path()}/experiences/tutorial.isx"
+}
+simulation_app = SimulationApp(config)
+
+def train_locomotion_policy():
+    """Train a locomotion policy using Isaac Lab"""
+    # Create world
+    world = World(stage_units_in_meters=1.0)
+
+    # Load humanoid robot
+    asset_root_path = get_assets_root_path()
+    robot_asset_path = f"{asset_root_path}/Isaac/Robots/Humanoid/humanoid_instanceable.usd"
+
+    # Add robot to stage
+    add_reference_to_stage(usd_path=robot_asset_path, prim_path="/World/Robot")
+
+    # Create articulation
+    robot = world.scene.add(
+        Articulation(
+            prim_path="/World/Robot",
+            name="humanoid_robot",
+            position=np.array([0.0, 0.0, 1.0])
+        )
+    )
+
+    # Initialize training environment
+    env = LocomotionEnvironment(world, robot)
+
+    # Initialize RL agent
+    agent = HumanoidPPOAgent(
+        state_dim=env.get_state_dim(),
+        action_dim=env.get_action_dim()
+    )
+
+    # Training loop
+    for episode in range(10000):
+        # Reset environment
+        obs = env.reset()
+        total_reward = 0
+
+        for step in range(1000):  # Max steps per episode
+            # Get action from agent
+            action, log_prob = agent.select_action(obs)
+
+            # Execute action in simulation
+            next_obs, reward, done, info = env.step(action)
+
+            # Store experience
+            agent.buffer.append((obs, action, reward, log_prob, 0))
+
+            obs = next_obs
+            total_reward += reward
+
+            if done:
+                break
+
+        # Update policy periodically
+        if episode % 10 == 0:
+            # Update agent with collected experiences
+            # (implementation would depend on specific algorithm)
+            pass
+
+        # Print progress
+        if episode % 100 == 0:
+            print(f"Episode {episode}, Reward: {total_reward:.2f}")
+
+    # Close simulation
+    simulation_app.close()
+
+class LocomotionEnvironment:
+    """Environment for humanoid locomotion training"""
+    def __init__(self, world, robot):
+        self.world = world
+        self.robot = robot
+        self.dt = 1.0 / 60.0  # Simulation timestep
+
+        # Define action and observation spaces
+        self.action_dim = len(robot.dof_names)  # Degrees of freedom
+        self.state_dim = self.calculate_state_dim()
+
+        # Target velocity for locomotion
+        self.target_velocity = 1.0  # m/s
+
+    def calculate_state_dim(self):
+        """Calculate dimension of state vector"""
+        # State includes: joint positions, joint velocities, IMU readings, robot pose, etc.
+        joint_pos_dim = len(self.robot.dof_names)
+        joint_vel_dim = len(self.robot.dof_names)
+        imu_dim = 6  # angular velocity (3) + linear acceleration (3)
+        pose_dim = 6  # position (3) + orientation (3)
+
+        return joint_pos_dim + joint_vel_dim + imu_dim + pose_dim
+
+    def reset(self):
+        """Reset environment to initial state"""
+        self.world.reset()
+
+        # Randomize robot pose slightly
+        pos = np.array([0.0, 0.0, 1.0]) + np.random.normal(0, 0.01, 3)
+        self.robot.set_world_pose(position=pos)
+
+        # Get initial state
+        return self.get_state()
+
+    def step(self, action):
+        """Execute one step in the environment"""
+        # Apply action to robot (joint position targets)
+        self.robot.set_joints_position_target(action)
+
+        # Step simulation
+        self.world.step(render=True)
+
+        # Get new state
+        state = self.get_state()
+
+        # Calculate reward
+        reward = self.calculate_reward()
+
+        # Check termination
+        done = self.is_done()
+
+        return state, reward, done, {}
+
+    def get_state(self):
+        """Get current state of the environment"""
+        # Get joint states
+        joint_pos = self.robot.get_joints_state().position
+        joint_vel = self.robot.get_joints_state().velocity
+
+        # Get IMU data (simplified - in practice would use actual IMU sensor)
+        base_pos, base_orn = self.robot.get_world_pose()
+        base_lin_vel, base_ang_vel = self.robot.get_linear_velocity(), self.robot.get_angular_velocity()
+
+        # Combine into state vector
+        state = np.concatenate([
+            joint_pos,
+            joint_vel,
+            base_ang_vel,  # Angular velocity (simulated IMU)
+            base_lin_vel,  # Linear acceleration (simulated IMU)
+            base_pos[:2],  # X, Y position
+            base_orn[:3]   # Orientation (first 3 components of quaternion)
+        ])
+
+        return state
+
+    def calculate_reward(self):
+        """Calculate reward based on locomotion performance"""
+        reward = 0.0
+
+        # Get current velocity
+        lin_vel = self.robot.get_linear_velocity()
+        current_velocity = np.linalg.norm(lin_vel[:2])  # X, Y velocity magnitude
+
+        # Reward for moving at target velocity
+        velocity_reward = -abs(current_velocity - self.target_velocity) * 0.1
+        reward += velocity_reward
+
+        # Penalty for falling
+        base_pos = self.robot.get_world_pose()[0]
+        if base_pos[2] < 0.5:  # Robot fell down
+            reward -= 10.0
+
+        # Reward for staying upright
+        base_orn = self.robot.get_world_pose()[1]
+        upright_reward = base_orn[3] * 0.1  # Reward for positive W orientation (upright)
+        reward += upright_reward
+
+        return reward
+
+    def is_done(self):
+        """Check if episode is done"""
+        # Check if robot fell
+        base_pos = self.robot.get_world_pose()[0]
+        if base_pos[2] < 0.5:  # Robot fell down
+            return True
+
+        # Check if robot is outside bounds
+        base_pos = self.robot.get_world_pose()[0]
+        if np.abs(base_pos[0]) > 10.0 or np.abs(base_pos[1]) > 10.0:
+            return True
+
+        return False
+
+    def get_state_dim(self):
+        return self.state_dim
+
+    def get_action_dim(self):
+        return self.action_dim
+
+# Run training if this script is executed directly
+if __name__ == "__main__":
+    train_locomotion_policy()
+```
+
+## Performance Optimization
+
+### GPU Memory Management
+
+```python
+# GPU memory optimization for Isaac applications
+import torch
+import gc
+
+class GPUMemoryManager:
+    def __init__(self):
+        self.model_cache = {}
+        self.current_memory_usage = 0
+        self.max_memory_usage = torch.cuda.get_device_properties(0).total_memory * 0.8  # 80% of GPU memory
+
+    def optimize_tensor(self, tensor):
+        """Optimize tensor for GPU memory usage"""
+        # Convert to half precision if possible
+        if tensor.dtype == torch.float32:
+            return tensor.half()
+        return tensor
+
+    def clear_cache(self):
+        """Clear PyTorch cache and garbage collect"""
+        torch.cuda.empty_cache()
+        gc.collect()
+
+    def manage_memory(self):
+        """Monitor and manage GPU memory usage"""
+        current_memory = torch.cuda.memory_allocated()
+        if current_memory > self.max_memory_usage * 0.9:  # 90% threshold
+            self.clear_cache()
+            self.get_logger().warn('GPU memory usage high, cleared cache')
+
+    def load_model_optimized(self, model_path):
+        """Load model with memory optimization"""
+        # Load model in half precision
+        model = torch.jit.load(model_path)
+        model = model.half()
+        model = model.cuda()
+        model.eval()
+
+        # Enable TensorRT optimization if available
+        try:
+            model = torch_tensorrt.compile(
+                model,
+                inputs=[torch_tensorrt.Input((1, 3, 480, 640), dtype=torch.half)],
+                enabled_precisions={torch.half},
+                workspace_size=1 << 25  # 32MB workspace
+            )
+        except:
+            pass  # Fall back to regular model if TensorRT fails
+
+        return model
+```
+
+## Summary
+
+Advanced NVIDIA Isaac concepts enable sophisticated perception and learning capabilities for humanoid robots. Key areas include:
+
+- Optimized perception pipelines using TensorRT and NITROS
+- Multi-modal sensor fusion for comprehensive environment understanding
+- Reinforcement learning frameworks for complex behaviors
+- GPU memory management for real-time performance
+- Isaac Sim environments for safe training and testing
+
+These advanced techniques allow humanoid robots to perform complex tasks with high performance and reliability.
+
+## Next Steps
+
+- Implement optimized perception pipelines for your specific robot
+- Create custom Isaac Sim environments for your tasks
+- Train reinforcement learning policies for complex behaviors
+- Optimize GPU memory usage for real-time applications
+- Integrate multiple Isaac components into a cohesive system

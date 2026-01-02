@@ -1,0 +1,770 @@
+---
+sidebar_position: 2
+---
+
+# Chapter 2: Unity Human-Robot Interaction
+
+## Introduction
+
+Unity provides a powerful platform for creating high-fidelity visualizations and human-robot interaction scenarios. While Gazebo excels at physics simulation, Unity offers superior rendering capabilities, realistic lighting, and immersive environments that are essential for developing and testing human-robot interaction systems. This chapter explores how to leverage Unity for creating realistic human-robot interaction scenarios in the context of humanoid robotics.
+
+## Unity in the Physical AI Ecosystem
+
+Unity serves as a complementary tool to traditional robotics simulation by providing:
+
+- **High-fidelity rendering**: Photorealistic visualization for perception development
+- **Immersive environments**: Complex scenes for testing navigation and interaction
+- **Human-in-the-loop testing**: Realistic human-robot interaction scenarios
+- **VR/AR integration**: Immersive interfaces for robot teleoperation
+- **Multi-modal simulation**: Audio, visual, and haptic feedback integration
+
+## Setting Up Unity for Robotics
+
+### Unity Robotics Hub
+The Unity Robotics Hub provides essential tools for robotics development:
+
+```csharp
+// Example Unity C# script for robot control
+using UnityEngine;
+using Unity.Robotics.ROSTCPConnector;
+using RosMessageTypes.Sensor;
+
+public class HumanoidController : MonoBehaviour
+{
+    private ROSConnection ros;
+    private string robotName = "humanoid_robot";
+
+    void Start()
+    {
+        ros = ROSConnection.instance;
+
+        // Subscribe to joint state messages
+        ros.Subscribe<JointStateMsg>($"/{robotName}/joint_states", JointStateCallback);
+    }
+
+    void JointStateCallback(JointStateMsg jointState)
+    {
+        // Process joint state messages and update Unity robot model
+        UpdateRobotModel(jointState);
+    }
+
+    void UpdateRobotModel(JointStateMsg jointState)
+    {
+        // Update Unity transforms based on joint positions
+        for (int i = 0; i < jointState.name.Count; i++)
+        {
+            string jointName = jointState.name[i];
+            float jointPosition = (float)jointState.position[i];
+
+            Transform jointTransform = FindJointByName(jointName);
+            if (jointTransform != null)
+            {
+                // Apply joint position to Unity transform
+                ApplyJointPosition(jointTransform, jointPosition);
+            }
+        }
+    }
+
+    Transform FindJointByName(string name)
+    {
+        // Find the corresponding Unity transform for the joint
+        Transform[] allTransforms = GetComponentsInChildren<Transform>();
+        foreach (Transform t in allTransforms)
+        {
+            if (t.name == name)
+                return t;
+        }
+        return null;
+    }
+
+    void ApplyJointPosition(Transform joint, float position)
+    {
+        // Apply the joint position to the Unity transform
+        // This will depend on the joint type (revolute, prismatic, etc.)
+        joint.Rotate(Vector3.up, position * Mathf.Rad2Deg);
+    }
+}
+```
+
+### ROS-TCP Connection
+Unity communicates with ROS 2 systems through TCP connections:
+
+```csharp
+using Unity.Robotics.ROSTCPConnector;
+
+public class ROSBridge : MonoBehaviour
+{
+    public string rosIP = "127.0.0.1";
+    public int rosPort = 10000;
+
+    private ROSConnection rosConnection;
+
+    void Start()
+    {
+        rosConnection = ROSConnection.instance;
+        rosConnection.rosIPAddress = rosIP;
+        rosConnection.rosPort = rosPort;
+    }
+
+    public void SendJointCommand(string jointName, float position)
+    {
+        // Create and send joint command message
+        var jointCommand = new JointCommandMsg();
+        jointCommand.name.Add(jointName);
+        jointCommand.position.Add(position);
+
+        rosConnection.Send("joint_command_topic", jointCommand);
+    }
+}
+```
+
+## Creating Humanoid Robot Models in Unity
+
+### Importing Robot Models
+Unity supports various 3D model formats for robot representation:
+
+```csharp
+using UnityEngine;
+
+public class RobotModelLoader : MonoBehaviour
+{
+    [Header("Robot Configuration")]
+    public string robotURDFPath;
+    public GameObject robotPrefab;
+
+    [Header("Joint Configuration")]
+    public JointConfig[] jointConfigs;
+
+    [System.Serializable]
+    public class JointConfig
+    {
+        public string jointName;
+        public Transform jointTransform;
+        public JointType jointType;
+        public float minLimit;
+        public float maxLimit;
+    }
+
+    public enum JointType
+    {
+        Revolute,
+        Prismatic,
+        Fixed,
+        Continuous
+    }
+
+    void Start()
+    {
+        LoadRobotModel();
+    }
+
+    void LoadRobotModel()
+    {
+        // Load robot model from URDF or other format
+        if (robotPrefab != null)
+        {
+            GameObject robot = Instantiate(robotPrefab, transform);
+            ConfigureJoints(robot);
+        }
+    }
+
+    void ConfigureJoints(GameObject robot)
+    {
+        // Configure joint limits and properties based on URDF
+        foreach (JointConfig config in jointConfigs)
+        {
+            // Apply joint configuration to Unity components
+            ConfigureJoint(config);
+        }
+    }
+
+    void ConfigureJoint(JointConfig config)
+    {
+        // Set up Unity joint components based on joint type
+        if (config.jointType == JointType.Revolute)
+        {
+            ConfigurableJoint joint = config.jointTransform.GetComponent<ConfigurableJoint>();
+            if (joint != null)
+            {
+                // Configure revolute joint limits
+                SoftJointLimit limit = joint.lowAngularXLimit;
+                limit.limit = config.minLimit;
+                joint.lowAngularXLimit = limit;
+
+                limit = joint.highAngularXLimit;
+                limit.limit = config.maxLimit;
+                joint.highAngularXLimit = limit;
+            }
+        }
+    }
+}
+```
+
+### Animation and Control Systems
+Unity's animation system can be integrated with ROS control:
+
+```csharp
+using UnityEngine;
+using UnityEngine.Animations;
+
+public class HumanoidAnimationController : MonoBehaviour
+{
+    [Header("Animation Parameters")]
+    public Animator animator;
+    public Avatar humanAvatar;
+
+    [Header("ROS Integration")]
+    public string rosTopic = "/humanoid_robot/animation_commands";
+
+    void Start()
+    {
+        if (animator != null)
+        {
+            animator.avatar = humanAvatar;
+            SetupAnimationParameters();
+        }
+    }
+
+    void SetupAnimationParameters()
+    {
+        // Set up animation parameters that can be controlled via ROS
+        animator.SetFloat("WalkSpeed", 0f);
+        animator.SetFloat("TurnSpeed", 0f);
+        animator.SetBool("IsWalking", false);
+        animator.SetBool("IsBalancing", false);
+    }
+
+    public void SetWalkSpeed(float speed)
+    {
+        if (animator != null)
+        {
+            animator.SetFloat("WalkSpeed", speed);
+            animator.SetBool("IsWalking", speed > 0.1f);
+        }
+    }
+
+    public void SetBalanceMode(bool balancing)
+    {
+        if (animator != null)
+        {
+            animator.SetBool("IsBalancing", balancing);
+        }
+    }
+}
+```
+
+## Human-Robot Interaction Scenarios
+
+### Social Interaction Framework
+Creating realistic social interactions between humans and humanoid robots:
+
+```csharp
+using UnityEngine;
+
+public class SocialInteractionManager : MonoBehaviour
+{
+    [Header("Human Interaction")]
+    public GameObject humanCharacter;
+    public float interactionDistance = 2.0f;
+    public float attentionRadius = 5.0f;
+
+    [Header("Robot Behaviors")]
+    public float headTurnSpeed = 2.0f;
+    public float gestureSpeed = 1.0f;
+
+    private Transform robotTransform;
+    private Transform humanTransform;
+
+    void Start()
+    {
+        robotTransform = transform;
+        humanTransform = humanCharacter.transform;
+    }
+
+    void Update()
+    {
+        HandleSocialInteraction();
+    }
+
+    void HandleSocialInteraction()
+    {
+        float distance = Vector3.Distance(robotTransform.position, humanTransform.position);
+
+        if (distance <= attentionRadius)
+        {
+            // Robot notices human presence
+            if (distance <= interactionDistance)
+            {
+                // Direct interaction - turn to face human
+                LookAtHuman();
+                TriggerSocialBehavior();
+            }
+            else
+            {
+                // Peripheral awareness - subtle attention
+                SubtleAttention();
+            }
+        }
+    }
+
+    void LookAtHuman()
+    {
+        Vector3 lookPosition = humanTransform.position;
+        lookPosition.y = robotTransform.position.y; // Keep at robot's eye level
+
+        Quaternion targetRotation = Quaternion.LookRotation(lookPosition - robotTransform.position);
+        robotTransform.rotation = Quaternion.Slerp(
+            robotTransform.rotation,
+            targetRotation,
+            headTurnSpeed * Time.deltaTime
+        );
+    }
+
+    void TriggerSocialBehavior()
+    {
+        // Trigger appropriate social behaviors based on context
+        // This could include gestures, facial expressions, or speech
+        TriggerGesture(Random.Range(0, 3));
+    }
+
+    void TriggerGesture(int gestureType)
+    {
+        // Trigger different social gestures
+        switch (gestureType)
+        {
+            case 0: // Wave
+                StartCoroutine(WaveGesture());
+                break;
+            case 1: // Nod
+                StartCoroutine(NodGesture());
+                break;
+            case 2: // Point
+                StartCoroutine(PointGesture());
+                break;
+        }
+    }
+
+    System.Collections.IEnumerator WaveGesture()
+    {
+        // Animate waving gesture
+        yield return new WaitForSeconds(1.0f);
+    }
+
+    System.Collections.IEnumerator NodGesture()
+    {
+        // Animate nodding gesture
+        yield return new WaitForSeconds(1.0f);
+    }
+
+    System.Collections.IEnumerator PointGesture()
+    {
+        // Animate pointing gesture
+        yield return new WaitForSeconds(1.0f);
+    }
+
+    void SubtleAttention()
+    {
+        // Subtle attention behaviors when human is nearby but not in direct interaction
+        // This could be slight head turns or peripheral awareness animations
+    }
+}
+```
+
+### Multi-Modal Interaction
+Integrating multiple interaction modalities:
+
+```csharp
+using UnityEngine;
+using UnityEngine.UI;
+
+public class MultiModalInteraction : MonoBehaviour
+{
+    [Header("Visual Feedback")]
+    public GameObject speechBubble;
+    public Text speechText;
+    public GameObject gestureIndicator;
+
+    [Header("Audio Feedback")]
+    public AudioSource audioSource;
+    public AudioClip[] speechClips;
+
+    [Header("Haptic Feedback")]
+    public bool hapticEnabled = true;
+
+    [Header("ROS Integration")]
+    public string speechTopic = "/humanoid_robot/speech";
+    public string gestureTopic = "/humanoid_robot/gestures";
+
+    public void DisplaySpeech(string message, float duration = 3.0f)
+    {
+        if (speechBubble != null && speechText != null)
+        {
+            speechText.text = message;
+            speechBubble.SetActive(true);
+
+            Invoke("HideSpeech", duration);
+        }
+
+        // Play corresponding audio
+        PlaySpeechAudio(message);
+    }
+
+    void HideSpeech()
+    {
+        if (speechBubble != null)
+        {
+            speechBubble.SetActive(false);
+        }
+    }
+
+    void PlaySpeechAudio(string message)
+    {
+        if (audioSource != null && speechClips.Length > 0)
+        {
+            // In a real implementation, this would use TTS or pre-recorded clips
+            int clipIndex = Mathf.Clamp(message.GetHashCode() % speechClips.Length, 0, speechClips.Length - 1);
+            audioSource.PlayOneShot(speechClips[clipIndex]);
+        }
+    }
+
+    public void TriggerGesture(string gestureName)
+    {
+        if (gestureIndicator != null)
+        {
+            gestureIndicator.SetActive(true);
+            Invoke("HideGestureIndicator", 2.0f);
+        }
+
+        // Send gesture command via ROS
+        SendGestureCommand(gestureName);
+    }
+
+    void HideGestureIndicator()
+    {
+        if (gestureIndicator != null)
+        {
+            gestureIndicator.SetActive(false);
+        }
+    }
+
+    void SendGestureCommand(string gestureName)
+    {
+        // Send gesture command to ROS system
+        // This would typically involve sending a ROS message
+    }
+
+    public void ProvideHapticFeedback(float intensity, float duration)
+    {
+        if (hapticEnabled)
+        {
+            // In a real implementation, this would trigger haptic feedback
+            // This could be through VR controllers, haptic suits, etc.
+            Debug.Log($"Haptic feedback: intensity={intensity}, duration={duration}");
+        }
+    }
+}
+```
+
+## VR/AR Integration for Teleoperation
+
+### VR Teleoperation Interface
+Creating immersive interfaces for robot teleoperation:
+
+```csharp
+#if UNITY_STANDALONE || UNITY_EDITOR
+using UnityEngine.XR;
+using UnityEngine.XR.Interaction.Toolkit;
+#endif
+
+public class VRTeleoperation : MonoBehaviour
+{
+    [Header("VR Controllers")]
+    public XRNode leftControllerNode;
+    public XRNode rightControllerNode;
+
+    [Header("Robot Control")]
+    public GameObject humanoidRobot;
+    public float moveSpeed = 1.0f;
+    public float turnSpeed = 1.0f;
+
+    [Header("ROS Integration")]
+    public string teleopTopic = "/humanoid_robot/teleop";
+
+    private InputDevice leftController;
+    private InputDevice rightController;
+
+    void Start()
+    {
+        InitializeControllers();
+    }
+
+    void Update()
+    {
+        UpdateControllers();
+        HandleTeleoperation();
+    }
+
+    void InitializeControllers()
+    {
+        leftController = InputDevices.GetDeviceAtXRNode(leftControllerNode);
+        rightController = InputDevices.GetDeviceAtXRNode(rightControllerNode);
+    }
+
+    void UpdateControllers()
+    {
+        InputDevices.TryGetDeviceAtXRNode(leftControllerNode, out leftController);
+        InputDevices.TryGetDeviceAtXRNode(rightControllerNode, out rightController);
+    }
+
+    void HandleTeleoperation()
+    {
+        // Get controller inputs
+        Vector2 leftStick = GetControllerAxis(leftController, CommonUsages.primary2DAxis);
+        Vector2 rightStick = GetControllerAxis(rightController, CommonUsages.primary2DAxis);
+
+        // Map controller inputs to robot movement
+        Vector3 movement = new Vector3(leftStick.x, 0, leftStick.y) * moveSpeed * Time.deltaTime;
+        float rotation = rightStick.x * turnSpeed * Time.deltaTime;
+
+        // Apply movement to robot
+        humanoidRobot.transform.Translate(movement, Space.World);
+        humanoidRobot.transform.Rotate(Vector3.up, rotation);
+
+        // Send commands via ROS
+        SendTeleoperationCommands(movement, rotation);
+    }
+
+    Vector2 GetControllerAxis(InputDevice device, InputFeatureUsage<Vector2> axis)
+    {
+        Vector2 axisValue = Vector2.zero;
+        if (device.isValid)
+        {
+            device.TryGetFeatureValue(axis, out axisValue);
+        }
+        return axisValue;
+    }
+
+    void SendTeleoperationCommands(Vector3 movement, float rotation)
+    {
+        // Send teleoperation commands to ROS system
+        // This would involve creating and sending appropriate ROS messages
+    }
+}
+```
+
+## Perception Simulation in Unity
+
+### Camera and Sensor Simulation
+Simulating various sensors within Unity:
+
+```csharp
+using UnityEngine;
+
+public class UnitySensorSimulation : MonoBehaviour
+{
+    [Header("Camera Simulation")]
+    public Camera mainCamera;
+    public int imageWidth = 640;
+    public int imageHeight = 480;
+    public float fov = 60f;
+
+    [Header("LIDAR Simulation")]
+    public int lidarPoints = 360;
+    public float lidarRange = 10f;
+
+    [Header("IMU Simulation")]
+    public float imuNoise = 0.01f;
+
+    private RenderTexture cameraTexture;
+    private float[] lidarData;
+
+    void Start()
+    {
+        SetupCameraSimulation();
+        SetupLidarSimulation();
+    }
+
+    void SetupCameraSimulation()
+    {
+        if (mainCamera != null)
+        {
+            mainCamera.fieldOfView = fov;
+            cameraTexture = new RenderTexture(imageWidth, imageHeight, 24);
+            mainCamera.targetTexture = cameraTexture;
+        }
+    }
+
+    void SetupLidarSimulation()
+    {
+        lidarData = new float[lidarPoints];
+    }
+
+    void Update()
+    {
+        SimulateSensors();
+    }
+
+    void SimulateSensors()
+    {
+        // Simulate camera data
+        SimulateCameraData();
+
+        // Simulate LIDAR data
+        SimulateLidarData();
+
+        // Simulate IMU data
+        SimulateImuData();
+    }
+
+    void SimulateCameraData()
+    {
+        // Capture camera image and process as needed
+        // This could involve sending to ROS or processing locally
+    }
+
+    void SimulateLidarData()
+    {
+        // Simulate LIDAR raycasting
+        for (int i = 0; i < lidarPoints; i++)
+        {
+            float angle = (float)i / lidarPoints * 360f * Mathf.Deg2Rad;
+            Vector3 direction = new Vector3(Mathf.Cos(angle), 0, Mathf.Sin(angle));
+
+            RaycastHit hit;
+            if (Physics.Raycast(transform.position, direction, out hit, lidarRange))
+            {
+                lidarData[i] = hit.distance;
+            }
+            else
+            {
+                lidarData[i] = lidarRange; // No obstacle detected
+            }
+        }
+    }
+
+    void SimulateImuData()
+    {
+        // Simulate IMU readings with added noise
+        Vector3 linearAcceleration = Physics.gravity + Random.insideUnitSphere * imuNoise;
+        Vector3 angularVelocity = Random.insideUnitSphere * imuNoise;
+
+        // Send IMU data via ROS or process locally
+        SendImuData(linearAcceleration, angularVelocity);
+    }
+
+    void SendImuData(Vector3 linearAccel, Vector3 angularVel)
+    {
+        // Send IMU data to ROS system
+        // This would involve creating and sending sensor_msgs/Imu messages
+    }
+}
+```
+
+## Performance Optimization
+
+### Level of Detail (LOD) Systems
+Optimizing performance for complex scenes:
+
+```csharp
+using UnityEngine;
+
+[RequireComponent(typeof(LODGroup))]
+public class RobotLODController : MonoBehaviour
+{
+    public LODGroup lodGroup;
+    public float[] lodDistances = { 10f, 20f, 50f };
+
+    void Start()
+    {
+        if (lodGroup == null)
+            lodGroup = GetComponent<LODGroup>();
+
+        SetupLOD();
+    }
+
+    void SetupLOD()
+    {
+        LOD[] lods = new LOD[lodDistances.Length];
+
+        for (int i = 0; i < lodDistances.Length; i++)
+        {
+            float screenRelativeTransitionHeight = lodDistances[i] / Camera.main.farClipPlane;
+            lods[i] = new LOD(screenRelativeTransitionHeight, GetRenderersForLOD(i));
+        }
+
+        lodGroup.SetLODs(lods);
+        lodGroup.RecalculateBounds();
+    }
+
+    Renderer[] GetRenderersForLOD(int lodLevel)
+    {
+        // Return appropriate renderers for each LOD level
+        // This could involve different mesh complexities or detail levels
+        return GetComponentsInChildren<Renderer>();
+    }
+}
+```
+
+## Integration with ROS 2 Systems
+
+### Real-time Communication
+Maintaining real-time communication with ROS 2:
+
+```csharp
+using System.Collections;
+using UnityEngine;
+
+public class RealTimeROSIntegration : MonoBehaviour
+{
+    public float rosUpdateRate = 60f; // Hz
+    private float rosUpdateInterval;
+
+    void Start()
+    {
+        rosUpdateInterval = 1f / rosUpdateRate;
+        StartCoroutine(RealTimeROSUpdate());
+    }
+
+    IEnumerator RealTimeROSUpdate()
+    {
+        while (true)
+        {
+            // Update ROS communication
+            UpdateROSData();
+
+            yield return new WaitForSeconds(rosUpdateInterval);
+        }
+    }
+
+    void UpdateROSData()
+    {
+        // Send current robot state to ROS
+        SendRobotState();
+
+        // Receive commands from ROS
+        ReceiveRobotCommands();
+    }
+
+    void SendRobotState()
+    {
+        // Send current robot state (position, joint angles, sensor data) to ROS
+    }
+
+    void ReceiveRobotCommands()
+    {
+        // Receive and process commands from ROS
+    }
+}
+```
+
+## Summary
+
+Unity provides a powerful platform for creating realistic human-robot interaction scenarios in humanoid robotics. By leveraging Unity's high-fidelity rendering, VR/AR capabilities, and multi-modal interaction systems, developers can create immersive environments for testing and developing human-robot interaction systems.
+
+The integration between Unity and ROS 2 enables seamless data exchange, allowing Unity to serve as both a visualization tool and an interaction platform for humanoid robots. This combination provides researchers and developers with powerful tools for creating and testing complex human-robot interaction scenarios.
+
+## References
+
+- Unity Robotics Hub: https://github.com/Unity-Technologies/Unity-Robotics-Hub
+- Unity XR Interaction Toolkit: https://docs.unity3d.com/Packages/com.unity.xr.interaction.toolkit@2.0/manual/index.html
+- ROS-TCP-Connector: https://github.com/Unity-Technologies/ROS-TCP-Connector

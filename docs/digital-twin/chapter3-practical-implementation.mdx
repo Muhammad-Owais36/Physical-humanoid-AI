@@ -1,0 +1,2282 @@
+---
+title: Digital Twin Practical Implementation - Simulation and Training
+sidebar_position: 3
+---
+
+# Digital Twin Practical Implementation: Simulation and Training
+
+## Learning Objectives
+
+By the end of this chapter, you will be able to:
+- Implement complete Digital Twin workflows for humanoid robots
+- Set up simulation environments for specific tasks and scenarios
+- Integrate simulation with real robot control systems
+- Use Digital Twins for AI model training and validation
+- Deploy simulation-based solutions to physical robots
+
+## Prerequisites
+
+Before starting this chapter, you should have:
+- Mastery of basic and advanced Digital Twin concepts
+- Experience with Gazebo and Unity simulation environments
+- Understanding of ROS 2 integration with simulation
+- Knowledge of AI/ML concepts for robotics applications
+
+## Complete Digital Twin Implementation Workflow
+
+In this section, we'll build a complete Digital Twin system for a humanoid robot that includes simulation, control, and validation components.
+
+### Project Structure
+
+First, let's establish the project structure for our Digital Twin implementation:
+
+```bash
+# Digital Twin project structure
+digital_twin_project/
+├── simulation/
+│   ├── gazebo/
+│   │   ├── worlds/
+│   │   ├── models/
+│   │   └── launch/
+│   └── unity/
+│       ├── Assets/
+│       ├── ProjectSettings/
+│       └── Packages/
+├── robot_control/
+│   ├── config/
+│   ├── launch/
+│   ├── src/
+│   └── test/
+├── perception/
+│   ├── config/
+│   ├── launch/
+│   └── models/
+├── training/
+│   ├── datasets/
+│   ├── models/
+│   └── scripts/
+└── utils/
+    ├── validation/
+    └── visualization/
+```
+
+### Gazebo Simulation Package
+
+Let's create the core Gazebo simulation package:
+
+```xml
+<!-- simulation/gazebo/package.xml -->
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>humanoid_simulation</name>
+  <version>1.0.0</version>
+  <description>Complete Digital Twin simulation for humanoid robot</description>
+  <maintainer email="developer@example.com">Robot Developer</maintainer>
+  <license>Apache License 2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>gazebo_ros</depend>
+  <depend>gazebo_ros_control</depend>
+  <depend>joint_state_publisher</depend>
+  <depend>robot_state_publisher</depend>
+  <depend>rviz2</depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
+```
+
+```cmake
+# simulation/gazebo/CMakeLists.txt
+cmake_minimum_required(VERSION 3.8)
+project(humanoid_simulation)
+
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-Wall -Wextra -Wpedantic)
+endif()
+
+# Find dependencies
+find_package(ament_cmake REQUIRED)
+find_package(gazebo_dev REQUIRED)
+find_package(gazebo_ros REQUIRED)
+
+# Install launch files
+install(DIRECTORY
+  launch
+  worlds
+  models
+  DESTINATION share/${PROJECT_NAME}
+)
+
+# Install config files
+install(DIRECTORY
+  config
+  DESTINATION share/${PROJECT_NAME}
+)
+
+if(BUILD_TESTING)
+  find_package(ament_lint_auto REQUIRED)
+  ament_lint_auto_find_test_dependencies()
+endif()
+
+ament_package()
+```
+
+### Robot Model Configuration
+
+Create the complete humanoid robot model with all necessary sensors and actuators:
+
+```xml
+<!-- simulation/gazebo/models/humanoid_robot/model.urdf.xacro -->
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="humanoid_robot">
+
+  <!-- Include other xacro files -->
+  <xacro:include filename="$(find humanoid_description)/urdf/materials.xacro" />
+  <xacro:include filename="$(find humanoid_description)/urdf/transmission.xacro" />
+  <xacro:include filename="$(find humanoid_description)/urdf/gazebo.xacro" />
+
+  <!-- Constants -->
+  <xacro:property name="M_PI" value="3.1415926535897931" />
+
+  <!-- Base link -->
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <box size="0.3 0.2 0.1"/>
+      </geometry>
+      <material name="blue"/>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="0.3 0.2 0.1"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="10.0"/>
+      <inertia ixx="0.2" ixy="0" ixz="0" iyy="0.2" iyz="0" izz="0.2"/>
+    </inertial>
+  </link>
+
+  <!-- Torso -->
+  <joint name="torso_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="torso"/>
+    <origin xyz="0 0 0.05" rpy="0 0 0"/>
+  </joint>
+
+  <link name="torso">
+    <visual>
+      <geometry>
+        <box size="0.2 0.15 0.4"/>
+      </geometry>
+      <material name="white"/>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="0.2 0.15 0.4"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="8.0"/>
+      <inertia ixx="0.15" ixy="0" ixz="0" iyy="0.15" iyz="0" izz="0.15"/>
+    </inertial>
+  </link>
+
+  <!-- Head with camera -->
+  <joint name="head_joint" type="revolute">
+    <parent link="torso"/>
+    <child link="head"/>
+    <origin xyz="0 0 0.25" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.0" upper="1.0" effort="50" velocity="1.0"/>
+    <dynamics damping="0.5" friction="0.1"/>
+  </joint>
+
+  <link name="head">
+    <visual>
+      <geometry>
+        <sphere radius="0.1"/>
+      </geometry>
+      <material name="white"/>
+    </visual>
+    <collision>
+      <geometry>
+        <sphere radius="0.1"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="2.0"/>
+      <inertia ixx="0.02" ixy="0" ixz="0" iyy="0.02" iyz="0" izz="0.02"/>
+    </inertial>
+  </link>
+
+  <!-- Camera in head -->
+  <joint name="camera_joint" type="fixed">
+    <parent link="head"/>
+    <child link="camera_link"/>
+    <origin xyz="0.05 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="camera_link">
+    <inertial>
+      <mass value="0.1"/>
+      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+    </inertial>
+  </link>
+
+  <!-- Left arm -->
+  <joint name="left_shoulder_pitch" type="revolute">
+    <parent link="torso"/>
+    <child link="left_upper_arm"/>
+    <origin xyz="0.1 0 0.15" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-1.57" upper="1.57" effort="100" velocity="2.0"/>
+    <dynamics damping="1.0" friction="0.2"/>
+  </joint>
+
+  <link name="left_upper_arm">
+    <visual>
+      <geometry>
+        <cylinder length="0.3" radius="0.05"/>
+      </geometry>
+      <material name="gray"/>
+    </visual>
+    <collision>
+      <geometry>
+        <cylinder length="0.3" radius="0.05"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="1.5"/>
+      <inertia ixx="0.02" ixy="0" ixz="0" iyy="0.02" iyz="0" izz="0.02"/>
+    </inertial>
+  </link>
+
+  <joint name="left_elbow" type="revolute">
+    <parent link="left_upper_arm"/>
+    <child link="left_lower_arm"/>
+    <origin xyz="0 0 -0.15" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="0" upper="2.35" effort="80" velocity="2.0"/>
+    <dynamics damping="0.8" friction="0.15"/>
+  </joint>
+
+  <link name="left_lower_arm">
+    <visual>
+      <geometry>
+        <cylinder length="0.25" radius="0.04"/>
+      </geometry>
+      <material name="gray"/>
+    </visual>
+    <collision>
+      <geometry>
+        <cylinder length="0.25" radius="0.04"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="1.0"/>
+      <inertia ixx="0.01" ixy="0" ixz="0" iyy="0.01" iyz="0" izz="0.01"/>
+    </inertial>
+  </link>
+
+  <!-- Right arm (symmetric to left) -->
+  <joint name="right_shoulder_pitch" type="revolute">
+    <parent link="torso"/>
+    <child link="right_upper_arm"/>
+    <origin xyz="-0.1 0 0.15" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-1.57" upper="1.57" effort="100" velocity="2.0"/>
+    <dynamics damping="1.0" friction="0.2"/>
+  </joint>
+
+  <link name="right_upper_arm">
+    <visual>
+      <geometry>
+        <cylinder length="0.3" radius="0.05"/>
+      </geometry>
+      <material name="gray"/>
+    </visual>
+    <collision>
+      <geometry>
+        <cylinder length="0.3" radius="0.05"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="1.5"/>
+      <inertia ixx="0.02" ixy="0" ixz="0" iyy="0.02" iyz="0" izz="0.02"/>
+    </inertial>
+  </link>
+
+  <joint name="right_elbow" type="revolute">
+    <parent link="right_upper_arm"/>
+    <child link="right_lower_arm"/>
+    <origin xyz="0 0 -0.15" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="0" upper="2.35" effort="80" velocity="2.0"/>
+    <dynamics damping="0.8" friction="0.15"/>
+  </joint>
+
+  <link name="right_lower_arm">
+    <visual>
+      <geometry>
+        <cylinder length="0.25" radius="0.04"/>
+      </geometry>
+      <material name="gray"/>
+    </visual>
+    <collision>
+      <geometry>
+        <cylinder length="0.25" radius="0.04"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="1.0"/>
+      <inertia ixx="0.01" ixy="0" ixz="0" iyy="0.01" iyz="0" izz="0.01"/>
+    </inertial>
+  </link>
+
+  <!-- Left leg -->
+  <joint name="left_hip_yaw" type="revolute">
+    <parent link="torso"/>
+    <child link="left_upper_leg"/>
+    <origin xyz="0.05 -0.075 -0.2" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-0.5" upper="0.5" effort="200" velocity="1.5"/>
+    <dynamics damping="2.0" friction="0.3"/>
+  </joint>
+
+  <link name="left_upper_leg">
+    <visual>
+      <geometry>
+        <cylinder length="0.4" radius="0.06"/>
+      </geometry>
+      <material name="dark_gray"/>
+    </visual>
+    <collision>
+      <geometry>
+        <cylinder length="0.4" radius="0.06"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="3.0"/>
+      <inertia ixx="0.04" ixy="0" ixz="0" iyy="0.04" iyz="0" izz="0.04"/>
+    </inertial>
+  </link>
+
+  <joint name="left_knee" type="revolute">
+    <parent link="left_upper_leg"/>
+    <child link="left_lower_leg"/>
+    <origin xyz="0 0 -0.2" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="0" upper="2.0" effort="200" velocity="1.5"/>
+    <dynamics damping="2.0" friction="0.3"/>
+  </joint>
+
+  <link name="left_lower_leg">
+    <visual>
+      <geometry>
+        <cylinder length="0.35" radius="0.05"/>
+      </geometry>
+      <material name="dark_gray"/>
+    </visual>
+    <collision>
+      <geometry>
+        <cylinder length="0.35" radius="0.05"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="2.5"/>
+      <inertia ixx="0.03" ixy="0" ixz="0" iyy="0.03" iyz="0" izz="0.03"/>
+    </inertial>
+  </link>
+
+  <joint name="left_ankle" type="revolute">
+    <parent link="left_lower_leg"/>
+    <child link="left_foot"/>
+    <origin xyz="0 0 -0.175" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-0.5" upper="0.5" effort="150" velocity="1.0"/>
+    <dynamics damping="1.5" friction="0.25"/>
+  </joint>
+
+  <link name="left_foot">
+    <visual>
+      <geometry>
+        <box size="0.2 0.1 0.05"/>
+      </geometry>
+      <material name="black"/>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="0.2 0.1 0.05"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="1.0"/>
+      <inertia ixx="0.01" ixy="0" ixz="0" iyy="0.01" iyz="0" izz="0.01"/>
+    </inertial>
+  </link>
+
+  <!-- Right leg (symmetric to left) -->
+  <joint name="right_hip_yaw" type="revolute">
+    <parent link="torso"/>
+    <child link="right_upper_leg"/>
+    <origin xyz="-0.05 -0.075 -0.2" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-0.5" upper="0.5" effort="200" velocity="1.5"/>
+    <dynamics damping="2.0" friction="0.3"/>
+  </joint>
+
+  <link name="right_upper_leg">
+    <visual>
+      <geometry>
+        <cylinder length="0.4" radius="0.06"/>
+      </geometry>
+      <material name="dark_gray"/>
+    </visual>
+    <collision>
+      <geometry>
+        <cylinder length="0.4" radius="0.06"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="3.0"/>
+      <inertia ixx="0.04" ixy="0" ixz="0" iyy="0.04" iyz="0" izz="0.04"/>
+    </inertial>
+  </link>
+
+  <joint name="right_knee" type="revolute">
+    <parent link="right_upper_leg"/>
+    <child link="right_lower_leg"/>
+    <origin xyz="0 0 -0.2" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="0" upper="2.0" effort="200" velocity="1.5"/>
+    <dynamics damping="2.0" friction="0.3"/>
+  </joint>
+
+  <link name="right_lower_leg">
+    <visual>
+      <geometry>
+        <cylinder length="0.35" radius="0.05"/>
+      </geometry>
+      <material name="dark_gray"/>
+    </visual>
+    <collision>
+      <geometry>
+        <cylinder length="0.35" radius="0.05"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="2.5"/>
+      <inertia ixx="0.03" ixy="0" ixz="0" iyy="0.03" iyz="0" izz="0.03"/>
+    </inertial>
+  </link>
+
+  <joint name="right_ankle" type="revolute">
+    <parent link="right_lower_leg"/>
+    <child link="right_foot"/>
+    <origin xyz="0 0 -0.175" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-0.5" upper="0.5" effort="150" velocity="1.0"/>
+    <dynamics damping="1.5" friction="0.25"/>
+  </joint>
+
+  <link name="right_foot">
+    <visual>
+      <geometry>
+        <box size="0.2 0.1 0.05"/>
+      </geometry>
+      <material name="black"/>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="0.2 0.1 0.05"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="1.0"/>
+      <inertia ixx="0.01" ixy="0" ixz="0" iyy="0.01" iyz="0" izz="0.01"/>
+    </inertial>
+  </link>
+
+  <!-- Gazebo-specific configurations -->
+  <!-- Materials -->
+  <gazebo reference="base_link">
+    <material>Gazebo/Blue</material>
+  </gazebo>
+
+  <gazebo reference="torso">
+    <material>Gazebo/White</material>
+  </gazebo>
+
+  <gazebo reference="head">
+    <material>Gazebo/White</material>
+  </gazebo>
+
+  <gazebo reference="left_upper_arm">
+    <material>Gazebo/Grey</material>
+  </gazebo>
+
+  <gazebo reference="left_lower_arm">
+    <material>Gazebo/Grey</material>
+  </gazebo>
+
+  <gazebo reference="right_upper_arm">
+    <material>Gazebo/Grey</material>
+  </gazebo>
+
+  <gazebo reference="right_lower_arm">
+    <material>Gazebo/Grey</material>
+  </gazebo>
+
+  <gazebo reference="left_upper_leg">
+    <material>Gazebo/DarkGrey</material>
+  </gazebo>
+
+  <gazebo reference="left_lower_leg">
+    <material>Gazebo/DarkGrey</material>
+  </gazebo>
+
+  <gazebo reference="left_foot">
+    <material>Gazebo/Black</material>
+  </gazebo>
+
+  <gazebo reference="right_upper_leg">
+    <material>Gazebo/DarkGrey</material>
+  </gazebo>
+
+  <gazebo reference="right_lower_leg">
+    <material>Gazebo/DarkGrey</material>
+  </gazebo>
+
+  <gazebo reference="right_foot">
+    <material>Gazebo/Black</material>
+  </gazebo>
+
+  <!-- Sensors -->
+  <!-- Camera sensor -->
+  <gazebo reference="camera_link">
+    <sensor name="camera" type="camera">
+      <always_on>true</always_on>
+      <update_rate>30</update_rate>
+      <camera name="head">
+        <horizontal_fov>1.047</horizontal_fov>
+        <image>
+          <width>640</width>
+          <height>480</height>
+          <format>R8G8B8</format>
+        </image>
+        <clip>
+          <near>0.1</near>
+          <far>10.0</far>
+        </clip>
+        <noise>
+          <type>gaussian</type>
+          <mean>0.0</mean>
+          <stddev>0.007</stddev>
+        </noise>
+      </camera>
+      <plugin name="camera_controller" filename="libgazebo_ros_camera.so">
+        <ros>
+          <namespace>/humanoid</namespace>
+          <remapping>image_raw:=camera/image_raw</remapping>
+          <remapping>camera_info:=camera/camera_info</remapping>
+        </ros>
+        <camera_name>head_camera</camera_name>
+        <frame_name>camera_link</frame_name>
+        <hack_baseline>0.07</hack_baseline>
+        <distortion_k1>0.0</distortion_k1>
+        <distortion_k2>0.0</distortion_k2>
+        <distortion_k3>0.0</distortion_k3>
+        <distortion_t1>0.0</distortion_t1>
+        <distortion_t2>0.0</distortion_t2>
+      </plugin>
+    </sensor>
+  </gazebo>
+
+  <!-- IMU sensor -->
+  <gazebo reference="torso">
+    <sensor name="imu_sensor" type="imu">
+      <always_on>true</always_on>
+      <update_rate>100</update_rate>
+      <imu>
+        <angular_velocity>
+          <x>
+            <noise type="gaussian">
+              <mean>0.0</mean>
+              <stddev>0.001</stddev>
+              <bias_mean>0.0001</bias_mean>
+              <bias_stddev>0.00001</bias_stddev>
+            </noise>
+          </x>
+          <y>
+            <noise type="gaussian">
+              <mean>0.0</mean>
+              <stddev>0.001</stddev>
+              <bias_mean>0.0001</bias_mean>
+              <bias_stddev>0.00001</bias_stddev>
+            </noise>
+          </y>
+          <z>
+            <noise type="gaussian">
+              <mean>0.0</mean>
+              <stddev>0.001</stddev>
+              <bias_mean>0.0001</bias_mean>
+              <bias_stddev>0.00001</bias_stddev>
+            </noise>
+          </z>
+        </angular_velocity>
+        <linear_acceleration>
+          <x>
+            <noise type="gaussian">
+              <mean>0.0</mean>
+              <stddev>0.017</stddev>
+              <bias_mean>0.01</bias_mean>
+              <bias_stddev>0.001</bias_stddev>
+            </noise>
+          </x>
+          <y>
+            <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>0.017</stddev>
+            <bias_mean>0.01</bias_mean>
+            <bias_stddev>0.001</bias_stddev>
+          </y>
+          <z>
+            <noise type="gaussian">
+              <mean>0.0</mean>
+              <stddev>0.017</stddev>
+              <bias_mean>0.01</bias_mean>
+              <bias_stddev>0.001</bias_stddev>
+            </noise>
+          </z>
+        </linear_acceleration>
+      </imu>
+      <plugin name="imu_plugin" filename="libgazebo_ros_imu.so">
+        <ros>
+          <namespace>/humanoid</namespace>
+          <remapping>imu:=imu/data</remapping>
+        </ros>
+        <frame_name>torso</frame_name>
+        <body_name>torso</body_name>
+        <update_rate>100</update_rate>
+      </plugin>
+    </sensor>
+  </gazebo>
+
+  <!-- Force/Torque sensors in feet -->
+  <gazebo reference="left_foot">
+    <sensor name="left_foot_ft" type="force_torque">
+      <always_on>true</always_on>
+      <update_rate>100</update_rate>
+      <force_torque>
+        <frame>child</frame>
+        <measure_direction>child_to_parent</measure_direction>
+      </force_torque>
+      <plugin name="left_foot_ft_plugin" filename="libgazebo_ros_ft_sensor.so">
+        <ros>
+          <namespace>/humanoid</namespace>
+          <remapping>force_torque:=left_foot/ft_sensor</remapping>
+        </ros>
+        <frame_name>left_foot</frame_name>
+        <update_rate>100</update_rate>
+      </plugin>
+    </sensor>
+  </gazebo>
+
+  <gazebo reference="right_foot">
+    <sensor name="right_foot_ft" type="force_torque">
+      <always_on>true</always_on>
+      <update_rate>100</update_rate>
+      <force_torque>
+        <frame>child</frame>
+        <measure_direction>child_to_parent</measure_direction>
+      </force_torque>
+      <plugin name="right_foot_ft_plugin" filename="libgazebo_ros_ft_sensor.so">
+        <ros>
+          <namespace>/humanoid</namespace>
+          <remapping>force_torque:=right_foot/ft_sensor</remapping>
+        </ros>
+        <frame_name>right_foot</frame_name>
+        <update_rate>100</update_rate>
+      </plugin>
+    </sensor>
+  </gazebo>
+
+  <!-- Transmissions for joint control -->
+  <xacro:macro name="transmission_block" params="joint_name">
+    <transmission name="trans_${joint_name}" type="transmission_interface/SimpleTransmission">
+      <joint name="${joint_name}">
+        <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+      </joint>
+      <actuator name="motor_${joint_name}">
+        <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+        <mechanicalReduction>1</mechanicalReduction>
+      </actuator>
+    </transmission>
+  </xacro:macro>
+
+  <xacro:transmission_block joint_name="head_joint"/>
+  <xacro:transmission_block joint_name="left_shoulder_pitch"/>
+  <xacro:transmission_block joint_name="left_elbow"/>
+  <xacro:transmission_block joint_name="right_shoulder_pitch"/>
+  <xacro:transmission_block joint_name="right_elbow"/>
+  <xacro:transmission_block joint_name="left_hip_yaw"/>
+  <xacro:transmission_block joint_name="left_knee"/>
+  <xacro:transmission_block joint_name="left_ankle"/>
+  <xacro:transmission_block joint_name="right_hip_yaw"/>
+  <xacro:transmission_block joint_name="right_knee"/>
+  <xacro:transmission_block joint_name="right_ankle"/>
+
+  <!-- Gazebo ROS Control plugin -->
+  <gazebo>
+    <plugin name="gazebo_ros_control" filename="libgazebo_ros_control.so">
+      <robotNamespace>/humanoid</robotNamespace>
+      <robotSimType>gazebo_ros_control/DefaultRobotHWSim</robotSimType>
+    </plugin>
+  </gazebo>
+
+</robot>
+```
+
+### Simulation Launch Files
+
+Create comprehensive launch files to start the simulation with all components:
+
+```python
+# simulation/gazebo/launch/humanoid_simulation.launch.py
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, ExecuteProcess
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch_ros.actions import Node
+from launch_ros.substitutions import FindPackageShare
+import os
+from ament_index_python.packages import get_package_share_directory
+
+def generate_launch_description():
+    # Declare launch arguments
+    declared_arguments = []
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "use_sim_time",
+            default_value="true",
+            description="If true, use simulated time",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "world",
+            default_value="empty",
+            description="Choose one of: empty, small_room, maze, office",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "gui",
+            default_value="true",
+            description="If true, start Gazebo with GUI",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "robot_name",
+            default_value="humanoid_robot",
+            description="Name of the robot",
+        )
+    )
+
+    # Get launch configurations
+    use_sim_time = LaunchConfiguration("use_sim_time")
+    world = LaunchConfiguration("world")
+    gui = LaunchConfiguration("gui")
+    robot_name = LaunchConfiguration("robot_name")
+
+    # Get URDF file path
+    urdf_file = PathJoinSubstitution(
+        [FindPackageShare("humanoid_description"), "urdf", "humanoid_robot.urdf.xacro"]
+    )
+
+    # Read URDF file
+    try:
+        with open(urdf_file.perform({})) as infp:
+            robot_description_content = infp.read()
+    except FileNotFoundError:
+        # If the file doesn't exist, create a simple robot description
+        robot_description_content = """
+        <robot name="humanoid_robot">
+          <link name="base_link">
+            <visual>
+              <geometry>
+                <box size="0.3 0.2 0.1"/>
+              </geometry>
+            </visual>
+            <collision>
+              <geometry>
+                <box size="0.3 0.2 0.1"/>
+              </geometry>
+            </collision>
+            <inertial>
+              <mass value="10.0"/>
+              <inertia ixx="1.0" ixy="0" ixz="0" iyy="1.0" iyz="0" izz="1.0"/>
+            </inertial>
+          </link>
+        </robot>
+        """
+
+    robot_description = {"robot_description": robot_description_content}
+
+    # Gazebo launch
+    gazebo = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution(
+                [FindPackageShare("gazebo_ros"), "launch", "gazebo.launch.py"]
+            )
+        ),
+        launch_arguments={
+            "world": PathJoinSubstitution(
+                [FindPackageShare("humanoid_simulation"), "worlds", [world, ".world"]]
+            ),
+            "gui": gui,
+            "verbose": "false",
+        }.items(),
+    )
+
+    # Robot state publisher
+    robot_state_publisher = Node(
+        package="robot_state_publisher",
+        executable="robot_state_publisher",
+        output="both",
+        parameters=[robot_description, {"use_sim_time": use_sim_time}],
+    )
+
+    # Joint state publisher
+    joint_state_publisher = Node(
+        package="joint_state_publisher",
+        executable="joint_state_publisher",
+        output="both",
+        parameters=[{"use_sim_time": use_sim_time}],
+    )
+
+    # Spawn entity
+    spawn_entity = Node(
+        package="gazebo_ros",
+        executable="spawn_entity.py",
+        arguments=[
+            "-topic", "robot_description",
+            "-entity", robot_name,
+            "-x", "0.0",
+            "-y", "0.0",
+            "-z", "1.0"  # Start above ground to ensure proper spawning
+        ],
+        output="screen",
+    )
+
+    # RViz2 for visualization
+    rviz_config_file = PathJoinSubstitution(
+        [FindPackageShare("humanoid_simulation"), "rviz", "simulation.rviz"]
+    )
+
+    rviz = Node(
+        package="rviz2",
+        executable="rviz2",
+        name="rviz2",
+        output="log",
+        arguments=["-d", rviz_config_file],
+        parameters=[{"use_sim_time": use_sim_time}]
+    )
+
+    # Balance controller node (if available)
+    balance_controller = Node(
+        package="humanoid_control",
+        executable="balance_controller",
+        name="balance_controller",
+        parameters=[{"use_sim_time": use_sim_time}],
+        output="screen",
+    )
+
+    return LaunchDescription(
+        declared_arguments +
+        [
+            gazebo,
+            robot_state_publisher,
+            joint_state_publisher,
+            spawn_entity,
+            # rviz,  # Uncomment if RViz config exists
+            # balance_controller,  # Uncomment if controller exists
+        ]
+    )
+```
+
+### Advanced Simulation Scenarios
+
+Create different simulation scenarios for testing various capabilities:
+
+```xml
+<!-- simulation/gazebo/worlds/indoor_office.world -->
+<?xml version="1.0" ?>
+<sdf version="1.7">
+  <world name="indoor_office">
+    <!-- Include standard models -->
+    <include>
+      <uri>model://ground_plane</uri>
+    </include>
+
+    <include>
+      <uri>model://sun</uri>
+    </include>
+
+    <!-- Office environment -->
+    <model name="office_room">
+      <static>true</static>
+
+      <!-- Walls -->
+      <link name="wall_north">
+        <pose>0 5 2.5 0 0 0</pose>
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>10 0.2 5</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>10 0.2 5</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.8 0.8 0.8 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+          </material>
+        </visual>
+      </link>
+
+      <link name="wall_south">
+        <pose>0 -5 2.5 0 0 0</pose>
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>10 0.2 5</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>10 0.2 5</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.8 0.8 0.8 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+          </material>
+        </visual>
+      </link>
+
+      <link name="wall_east">
+        <pose>5 0 2.5 0 0 1.5707</pose>
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>10 0.2 5</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>10 0.2 5</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.8 0.8 0.8 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+          </material>
+        </visual>
+      </link>
+
+      <link name="wall_west">
+        <pose>-5 0 2.5 0 0 1.5707</pose>
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>10 0.2 5</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>10 0.2 5</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.8 0.8 0.8 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+          </material>
+        </visual>
+      </link>
+
+      <!-- Door opening -->
+      <link name="wall_with_door">
+        <pose>0 5 2.5 0 0 0</pose>
+        <visual name="left_door_jamb">
+          <pose>-2 0 2.5 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>1 0.2 5</size>
+            </box>
+          </geometry>
+        </visual>
+        <visual name="right_door_jamb">
+          <pose>2 0 2.5 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>1 0.2 5</size>
+            </box>
+          </geometry>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Office furniture -->
+    <model name="desk">
+      <pose>2 0 0.4 0 0 0</pose>
+      <link name="desk_top">
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>1.5 0.8 0.02</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>1.5 0.8 0.02</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.6 0.4 0.2 1</ambient>
+            <diffuse>0.6 0.4 0.2 1</diffuse>
+          </material>
+        </visual>
+      </link>
+      <link name="desk_leg1">
+        <pose>0.7 0.35 0.3 0 0 0</pose>
+        <collision name="collision">
+          <geometry>
+            <cylinder>
+              <radius>0.03</radius>
+              <length>0.6</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <cylinder>
+              <radius>0.03</radius>
+              <length>0.6</length>
+            </cylinder>
+          </geometry>
+        </visual>
+      </link>
+      <link name="desk_leg2">
+        <pose>-0.7 0.35 0.3 0 0 0</pose>
+        <collision name="collision">
+          <geometry>
+            <cylinder>
+              <radius>0.03</radius>
+              <length>0.6</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <cylinder>
+              <radius>0.03</radius>
+              <length>0.6</length>
+            </cylinder>
+          </geometry>
+        </visual>
+      </link>
+      <link name="desk_leg3">
+        <pose>0.7 -0.35 0.3 0 0 0</pose>
+        <collision name="collision">
+          <geometry>
+            <cylinder>
+              <radius>0.03</radius>
+              <length>0.6</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <cylinder>
+              <radius>0.03</radius>
+              <length>0.6</length>
+            </cylinder>
+          </geometry>
+        </visual>
+      </link>
+      <link name="desk_leg4">
+        <pose>-0.7 -0.35 0.3 0 0 0</pose>
+        <collision name="collision">
+          <geometry>
+            <cylinder>
+              <radius>0.03</radius>
+              <length>0.6</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <cylinder>
+              <radius>0.03</radius>
+              <length>0.6</length>
+            </cylinder>
+          </geometry>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Chair -->
+    <model name="office_chair">
+      <pose>2.5 -0.5 0.2 0 0 0</pose>
+      <link name="chair_seat">
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.4 0.4 0.02</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.4 0.4 0.02</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.2 0.2 0.7 1</ambient>
+            <diffuse>0.2 0.2 0.7 1</diffuse>
+          </material>
+        </visual>
+      </link>
+      <link name="chair_back">
+        <pose>0 0.2 0.4 0 0 0</pose>
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.4 0.02 0.4</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.4 0.02 0.4</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.2 0.2 0.7 1</ambient>
+            <diffuse>0.2 0.2 0.7 1</diffuse>
+          </material>
+        </visual>
+      </link>
+      <link name="chair_base">
+        <pose>0 0 -0.1 0 0 0</pose>
+        <collision name="collision">
+          <geometry>
+            <cylinder>
+              <radius>0.15</radius>
+              <length>0.02</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <cylinder>
+              <radius>0.15</radius>
+              <length>0.02</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.3 0.3 0.3 1</ambient>
+            <diffuse>0.3 0.3 0.3 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Bookshelf -->
+    <model name="bookshelf">
+      <pose>-3 2 0.6 0 0 0</pose>
+      <link name="shelf_base">
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.3 0.2 1.2</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.3 0.2 1.2</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.5 0.3 0.1 1</ambient>
+            <diffuse>0.5 0.3 0.1 1</diffuse>
+          </material>
+        </visual>
+      </link>
+      <link name="shelf_top">
+        <pose>0 0 1.1 0 0 0</pose>
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.3 0.2 0.02</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.3 0.2 0.02</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.5 0.3 0.1 1</ambient>
+            <diffuse>0.5 0.3 0.1 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Physics settings -->
+    <physics name="ode_physics" default="0" type="ode">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+      <real_time_update_rate>1000</real_time_update_rate>
+      <gravity>0 0 -9.8</gravity>
+    </physics>
+  </world>
+</sdf>
+```
+
+### Unity Simulation Package
+
+For Unity, create a comprehensive simulation environment:
+
+```csharp
+// simulation/unity/Assets/Scripts/HumanoidDigitalTwin.cs
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using Unity.Robotics.ROSTCPConnector;
+using RosMessageTypes.Sensor;
+using RosMessageTypes.Geometry;
+using RosMessageTypes.Std;
+
+public class HumanoidDigitalTwin : MonoBehaviour
+{
+    [Header("Robot Configuration")]
+    public float simulationSpeed = 1.0f;
+    public bool enablePhysics = true;
+    public bool enableSensors = true;
+
+    [Header("Joint Configuration")]
+    public Transform headJoint;
+    public Transform leftShoulder;
+    public Transform leftElbow;
+    public Transform rightShoulder;
+    public Transform rightElbow;
+    public Transform leftHip;
+    public Transform leftKnee;
+    public Transform leftAnkle;
+    public Transform rightHip;
+    public Transform rightKnee;
+    public Transform rightAnkle;
+
+    [Header("Sensor Configuration")]
+    public Camera headCamera;
+    public GameObject imuSensor;
+    public GameObject[] forceSensors; // For feet
+
+    private ROSConnection ros;
+    private Dictionary<string, Transform> jointMap;
+    private Dictionary<string, float> jointPositions;
+    private Dictionary<string, float> jointVelocities;
+
+    void Start()
+    {
+        // Initialize ROS connection
+        ros = ROSConnection.GetOrCreateInstance();
+        ros.RegisterPublisher<JointStateMsg>("/humanoid/joint_states");
+        ros.RegisterSubscriber<JointStateMsg>("/humanoid/joint_commands", JointCommandCallback);
+
+        // Initialize joint mapping
+        InitializeJointMap();
+
+        // Initialize joint states
+        InitializeJointStates();
+
+        Debug.Log("Humanoid Digital Twin initialized");
+    }
+
+    void InitializeJointMap()
+    {
+        jointMap = new Dictionary<string, Transform>
+        {
+            {"head_joint", headJoint},
+            {"left_shoulder_pitch", leftShoulder},
+            {"left_elbow", leftElbow},
+            {"right_shoulder_pitch", rightShoulder},
+            {"right_elbow", rightElbow},
+            {"left_hip_yaw", leftHip},
+            {"left_knee", leftKnee},
+            {"left_ankle", leftAnkle},
+            {"right_hip_yaw", rightHip},
+            {"right_knee", rightKnee},
+            {"right_ankle", rightAnkle}
+        };
+    }
+
+    void InitializeJointStates()
+    {
+        jointPositions = new Dictionary<string, float>();
+        jointVelocities = new Dictionary<string, float>();
+
+        foreach (var jointName in jointMap.Keys)
+        {
+            jointPositions[jointName] = 0f;
+            jointVelocities[jointName] = 0f;
+        }
+    }
+
+    void JointCommandCallback(JointStateMsg msg)
+    {
+        // Process joint commands from ROS
+        for (int i = 0; i < msg.name.Length && i < msg.position.Length; i++)
+        {
+            string jointName = msg.name[i];
+            float targetPosition = (float)msg.position[i];
+
+            if (jointMap.ContainsKey(jointName))
+            {
+                // Update joint position with smooth interpolation
+                StartCoroutine(MoveJointToPosition(jointName, targetPosition, 0.1f));
+            }
+        }
+    }
+
+    IEnumerator MoveJointToPosition(string jointName, float targetPosition, float duration)
+    {
+        Transform joint = jointMap[jointName];
+        float startPosition = joint.localEulerAngles.y * Mathf.Deg2Rad;
+
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            float currentPos = Mathf.Lerp(startPosition, targetPosition, elapsed / duration);
+
+            // Update joint rotation based on joint type
+            if (jointName.Contains("shoulder") || jointName.Contains("hip"))
+            {
+                joint.localEulerAngles = new Vector3(currentPos * Mathf.Rad2Deg, 0, 0);
+            }
+            else if (jointName.Contains("elbow") || jointName.Contains("knee") || jointName.Contains("ankle"))
+            {
+                joint.localEulerAngles = new Vector3(0, currentPos * Mathf.Rad2Deg, 0);
+            }
+            else if (jointName.Contains("head"))
+            {
+                joint.localEulerAngles = new Vector3(0, currentPos * Mathf.Rad2Deg, 0);
+            }
+
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        // Final position
+        if (jointName.Contains("shoulder") || jointName.Contains("hip"))
+        {
+            joint.localEulerAngles = new Vector3(targetPosition * Mathf.Rad2Deg, 0, 0);
+        }
+        else if (jointName.Contains("elbow") || jointName.Contains("knee") || jointName.Contains("ankle"))
+        {
+            joint.localEulerAngles = new Vector3(0, targetPosition * Mathf.Rad2Deg, 0);
+        }
+        else if (jointName.Contains("head"))
+        {
+            joint.localEulerAngles = new Vector3(0, targetPosition * Mathf.Rad2Deg, 0);
+        }
+
+        // Update joint state
+        jointPositions[jointName] = targetPosition;
+    }
+
+    void Update()
+    {
+        // Publish joint states periodically
+        if (Time.frameCount % 30 == 0) // 30 times per second
+        {
+            PublishJointStates();
+        }
+
+        // Publish sensor data
+        if (enableSensors)
+        {
+            PublishSensorData();
+        }
+
+        // Apply physics if enabled
+        if (enablePhysics)
+        {
+            ApplyPhysicsConstraints();
+        }
+    }
+
+    void PublishJointStates()
+    {
+        var jointState = new JointStateMsg();
+        jointState.name = new string[jointMap.Count];
+        jointState.position = new double[jointMap.Count];
+        jointState.velocity = new double[jointMap.Count];
+        jointState.effort = new double[jointMap.Count];
+
+        int i = 0;
+        foreach (var kvp in jointMap)
+        {
+            jointState.name[i] = kvp.Key;
+            jointState.position[i] = jointPositions[kvp.Key];
+            jointState.velocity[i] = jointVelocities[kvp.Key];
+            jointState.effort[i] = 0.0; // Simplified - in real implementation, calculate from torques
+            i++;
+        }
+
+        jointState.header.stamp = new TimeStamp(0, 0);
+        jointState.header.frame_id = "base_link";
+
+        ros.Publish("/humanoid/joint_states", jointState);
+    }
+
+    void PublishSensorData()
+    {
+        // Publish camera data
+        if (headCamera != null && Time.frameCount % 30 == 0) // Every 30 frames
+        {
+            PublishCameraData();
+        }
+
+        // Publish IMU data
+        if (imuSensor != null && Time.frameCount % 100 == 0) // Every 100 frames
+        {
+            PublishImuData();
+        }
+
+        // Publish force sensor data
+        if (forceSensors.Length > 0 && Time.frameCount % 100 == 0) // Every 100 frames
+        {
+            PublishForceSensorData();
+        }
+    }
+
+    void PublishCameraData()
+    {
+        // In a real implementation, you would capture the camera image
+        // and convert it to the appropriate ROS message format
+        var cameraMsg = new ImageMsg();
+        // Implementation would go here
+    }
+
+    void PublishImuData()
+    {
+        var imuMsg = new ImuMsg();
+
+        // Get IMU data from the game object
+        Vector3 angularVelocity = imuSensor.GetComponent<Rigidbody>().angularVelocity;
+        Vector3 linearAcceleration = imuSensor.GetComponent<Rigidbody>().velocity / Time.fixedDeltaTime;
+
+        // Convert to ROS message
+        imuMsg.angular_velocity = new Vector3Msg(angularVelocity.x, angularVelocity.y, angularVelocity.z);
+        imuMsg.linear_acceleration = new Vector3Msg(linearAcceleration.x, linearAcceleration.y, linearAcceleration.z);
+
+        // Add some noise to make it more realistic
+        AddSensorNoise(imuMsg);
+
+        ros.Publish("/humanoid/imu/data", imuMsg);
+    }
+
+    void AddSensorNoise(ImuMsg imuMsg)
+    {
+        // Add realistic sensor noise
+        float noiseFactor = 0.01f;
+
+        imuMsg.angular_velocity.x += Random.Range(-noiseFactor, noiseFactor);
+        imuMsg.angular_velocity.y += Random.Range(-noiseFactor, noiseFactor);
+        imuMsg.angular_velocity.z += Random.Range(-noiseFactor, noiseFactor);
+
+        imuMsg.linear_acceleration.x += Random.Range(-noiseFactor, noiseFactor);
+        imuMsg.linear_acceleration.y += Random.Range(-noiseFactor, noiseFactor);
+        imuMsg.linear_acceleration.z += Random.Range(-noiseFactor, noiseFactor);
+    }
+
+    void PublishForceSensorData()
+    {
+        foreach (GameObject forceSensor in forceSensors)
+        {
+            // Get force data from the sensor
+            // In a real implementation, this would be from a force/torque sensor component
+            var forceMsg = new WrenchMsg();
+            forceMsg.force = new Vector3Msg(0, 0, 0); // Placeholder
+            forceMsg.torque = new Vector3Msg(0, 0, 0); // Placeholder
+
+            string sensorName = forceSensor.name;
+            ros.Publish($"/humanoid/{sensorName}/wrench", forceMsg);
+        }
+    }
+
+    void ApplyPhysicsConstraints()
+    {
+        // Apply physics constraints to maintain humanoid stability
+        // This would include balance control, collision detection, etc.
+        ApplyBalanceControl();
+        ApplyCollisionHandling();
+    }
+
+    void ApplyBalanceControl()
+    {
+        // Simple balance control based on center of mass
+        Vector3 com = CalculateCenterOfMass();
+        Vector3 supportPolygonCenter = CalculateSupportPolygonCenter();
+
+        // Calculate balance error
+        Vector3 balanceError = com - supportPolygonCenter;
+
+        // Apply corrective torques (simplified)
+        if (balanceError.magnitude > 0.1f)
+        {
+            ApplyBalanceCorrection(balanceError);
+        }
+    }
+
+    Vector3 CalculateCenterOfMass()
+    {
+        // Calculate center of mass based on all rigidbodies
+        Vector3 com = Vector3.zero;
+        float totalMass = 0f;
+
+        Rigidbody[] rigidbodies = GetComponentsInChildren<Rigidbody>();
+        foreach (Rigidbody rb in rigidbodies)
+        {
+            com += rb.position * rb.mass;
+            totalMass += rb.mass;
+        }
+
+        if (totalMass > 0)
+        {
+            com /= totalMass;
+        }
+
+        return com;
+    }
+
+    Vector3 CalculateSupportPolygonCenter()
+    {
+        // Calculate the center of the support polygon (area where feet contact ground)
+        Vector3 center = Vector3.zero;
+        int contactPoints = 0;
+
+        // Check foot contact points
+        if (leftAnkle != null)
+        {
+            center += leftAnkle.position;
+            contactPoints++;
+        }
+        if (rightAnkle != null)
+        {
+            center += rightAnkle.position;
+            contactPoints++;
+        }
+
+        if (contactPoints > 0)
+        {
+            center /= contactPoints;
+        }
+
+        return center;
+    }
+
+    void ApplyBalanceCorrection(Vector3 balanceError)
+    {
+        // Apply simple balance correction
+        // In a real implementation, this would use more sophisticated control algorithms
+        foreach (Transform joint in jointMap.Values)
+        {
+            // Apply small corrective movements to joints
+            // This is a simplified approach
+        }
+    }
+
+    void ApplyCollisionHandling()
+    {
+        // Handle collisions between robot parts and environment
+        // This would include collision detection and response
+    }
+
+    public void SetSimulationSpeed(float speed)
+    {
+        simulationSpeed = speed;
+        Time.timeScale = speed;
+    }
+
+    public void ResetRobot()
+    {
+        // Reset robot to initial position
+        foreach (var kvp in jointMap)
+        {
+            kvp.Value.localEulerAngles = Vector3.zero;
+            jointPositions[kvp.Key] = 0f;
+        }
+    }
+}
+```
+
+### AI Training Integration
+
+Create scripts for AI training using the Digital Twin:
+
+```python
+# training/scripts/simulation_training.py
+#!/usr/bin/env python3
+
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import JointState, Image, Imu
+from geometry_msgs.msg import Twist, Vector3
+from std_msgs.msg import Float64
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from collections import deque
+import time
+
+class SimulationTrainer(Node):
+    def __init__(self):
+        super().__init__('simulation_trainer')
+
+        # Subscribers for robot state
+        self.joint_state_sub = self.create_subscription(
+            JointState, '/humanoid/joint_states', self.joint_state_callback, 10
+        )
+        self.imu_sub = self.create_subscription(
+            Imu, '/humanoid/imu/data', self.imu_callback, 10
+        )
+        self.camera_sub = self.create_subscription(
+            Image, '/humanoid/camera/image_raw', self.camera_callback, 10
+        )
+
+        # Publishers for control commands
+        self.joint_cmd_pub = self.create_publisher(
+            JointState, '/humanoid/joint_commands', 10
+        )
+        self.cmd_vel_pub = self.create_publisher(
+            Twist, '/humanoid/cmd_vel', 10
+        )
+
+        # Training parameters
+        self.state_buffer = deque(maxlen=100)
+        self.action_buffer = deque(maxlen=100)
+        self.reward_buffer = deque(maxlen=100)
+
+        self.current_joint_positions = {}
+        self.current_imu_data = None
+        self.current_image = None
+
+        # Neural network for control policy
+        self.policy_network = self.create_policy_network()
+        self.optimizer = optim.Adam(self.policy_network.parameters(), lr=0.001)
+
+        # Training loop timer
+        self.training_timer = self.create_timer(0.1, self.training_step)
+
+        self.get_logger().info('Simulation Trainer initialized')
+
+    def create_policy_network(self):
+        """Create a neural network for humanoid control policy"""
+        class PolicyNetwork(nn.Module):
+            def __init__(self):
+                super(PolicyNetwork, self).__init__()
+                self.fc1 = nn.Linear(20, 128)  # Input: joint states, imu data, etc.
+                self.fc2 = nn.Linear(128, 128)
+                self.fc3 = nn.Linear(128, 64)
+                self.output = nn.Linear(64, 12)  # Output: joint commands for 12 joints
+
+            def forward(self, x):
+                x = torch.relu(self.fc1(x))
+                x = torch.relu(self.fc2(x))
+                x = torch.relu(self.fc3(x))
+                return torch.tanh(self.output(x))  # Output between -1 and 1
+
+        return PolicyNetwork()
+
+    def joint_state_callback(self, msg):
+        """Process joint state messages"""
+        for i, name in enumerate(msg.name):
+            if i < len(msg.position):
+                self.current_joint_positions[name] = msg.position[i]
+
+    def imu_callback(self, msg):
+        """Process IMU data"""
+        self.current_imu_data = {
+            'angular_velocity': [
+                msg.angular_velocity.x,
+                msg.angular_velocity.y,
+                msg.angular_velocity.z
+            ],
+            'linear_acceleration': [
+                msg.linear_acceleration.x,
+                msg.linear_acceleration.y,
+                msg.linear_acceleration.z
+            ]
+        }
+
+    def camera_callback(self, msg):
+        """Process camera images"""
+        # In a real implementation, this would convert ROS image to tensor
+        # For now, we'll just store the message
+        self.current_image = msg
+
+    def get_robot_state(self):
+        """Get the current state of the robot for the neural network"""
+        # Create state vector from joint positions, IMU data, etc.
+        state = []
+
+        # Joint positions (normalized)
+        joint_names = [
+            'head_joint', 'left_shoulder_pitch', 'left_elbow',
+            'right_shoulder_pitch', 'right_elbow', 'left_hip_yaw',
+            'left_knee', 'left_ankle', 'right_hip_yaw',
+            'right_knee', 'right_ankle'
+        ]
+
+        for joint_name in joint_names:
+            pos = self.current_joint_positions.get(joint_name, 0.0)
+            # Normalize to [-1, 1] range (assuming joint limits)
+            normalized_pos = np.clip(pos / 2.0, -1.0, 1.0)  # Assuming max 2.0 rad
+            state.append(normalized_pos)
+
+        # Add IMU data
+        if self.current_imu_data:
+            for value in self.current_imu_data['angular_velocity']:
+                state.append(np.clip(value, -1.0, 1.0))
+            for value in self.current_imu_data['linear_acceleration']:
+                state.append(np.clip(value, -1.0, 1.0))
+        else:
+            # Add zeros if no IMU data
+            state.extend([0.0] * 6)
+
+        # Ensure state has consistent size
+        while len(state) < 20:
+            state.append(0.0)
+
+        return np.array(state[:20])  # Ensure exactly 20 elements
+
+    def execute_action(self, action):
+        """Execute an action by publishing joint commands"""
+        cmd_msg = JointState()
+        cmd_msg.header.stamp = self.get_clock().now().to_msg()
+
+        joint_names = [
+            'head_joint', 'left_shoulder_pitch', 'left_elbow',
+            'right_shoulder_pitch', 'right_elbow', 'left_hip_yaw',
+            'left_knee', 'left_ankle', 'right_hip_yaw',
+            'right_knee', 'right_ankle'
+        ]
+
+        cmd_msg.name = joint_names
+        cmd_msg.position = action.tolist()
+
+        self.joint_cmd_pub.publish(cmd_msg)
+
+    def calculate_reward(self):
+        """Calculate reward based on robot state"""
+        # Simple reward function - encourage upright position
+        reward = 0.0
+
+        # Check if robot is upright (based on IMU)
+        if self.current_imu_data:
+            # Prefer z-axis acceleration close to -9.8 (gravity)
+            z_acc = self.current_imu_data['linear_acceleration'][2]
+            reward += max(0, 1.0 - abs(z_acc + 9.8) / 10.0)
+
+        # Penalize extreme joint positions
+        for pos in self.current_joint_positions.values():
+            if abs(pos) > 1.5:  # Assuming 1.5 rad is extreme
+                reward -= 0.1
+
+        # Small time bonus to encourage longer episodes
+        reward += 0.01
+
+        return reward
+
+    def training_step(self):
+        """Main training step"""
+        # Get current state
+        state = self.get_robot_state()
+
+        # Convert to tensor
+        state_tensor = torch.FloatTensor(state).unsqueeze(0)
+
+        # Get action from policy network
+        with torch.no_grad():
+            action_tensor = self.policy_network(state_tensor)
+
+        action = action_tensor.squeeze(0).numpy()
+
+        # Execute action
+        self.execute_action(action)
+
+        # Calculate reward
+        reward = self.calculate_reward()
+
+        # Store in buffers
+        self.state_buffer.append(state)
+        self.action_buffer.append(action)
+        self.reward_buffer.append(reward)
+
+        # Train if we have enough samples
+        if len(self.state_buffer) >= 32:  # Batch size
+            self.train_network()
+
+    def train_network(self):
+        """Train the neural network"""
+        # Convert buffers to tensors
+        states = torch.FloatTensor(list(self.state_buffer))
+        actions = torch.FloatTensor(list(self.action_buffer))
+        rewards = torch.FloatTensor(list(self.reward_buffer))
+
+        # Simple loss function (in a real implementation, use proper RL algorithm)
+        predicted_actions = self.policy_network(states)
+        loss = nn.MSELoss()(predicted_actions, actions)
+
+        # Add reward-based loss component
+        reward_loss = -torch.mean(rewards)
+        total_loss = loss + 0.1 * reward_loss  # Weight the reward component
+
+        # Backpropagation
+        self.optimizer.zero_grad()
+        total_loss.backward()
+        self.optimizer.step()
+
+        self.get_logger().info(f'Training loss: {total_loss.item():.4f}')
+
+def main(args=None):
+    rclpy.init(args=args)
+    trainer = SimulationTrainer()
+
+    try:
+        rclpy.spin(trainer)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        trainer.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+### Validation and Testing Scripts
+
+Create validation scripts to ensure the Digital Twin accurately represents the physical robot:
+
+```python
+# utils/validation/validate_digital_twin.py
+#!/usr/bin/env python3
+
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import JointState, Imu
+from geometry_msgs.msg import Vector3
+from std_msgs.msg import Float64
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.spatial.transform import Rotation as R
+import time
+
+class DigitalTwinValidator(Node):
+    def __init__(self):
+        super().__init__('digital_twin_validator')
+
+        # Subscribers for simulation data
+        self.sim_joint_sub = self.create_subscription(
+            JointState, '/humanoid/joint_states', self.sim_joint_callback, 10
+        )
+        self.sim_imu_sub = self.create_subscription(
+            Imu, '/humanoid/imu/data', self.sim_imu_callback, 10
+        )
+
+        # Subscribers for real robot data (if available)
+        self.real_joint_sub = self.create_subscription(
+            JointState, '/real_humanoid/joint_states', self.real_joint_callback, 10
+        )
+        self.real_imu_sub = self.create_subscription(
+            Imu, '/real_humanoid/imu/data', self.real_imu_callback, 10
+        )
+
+        # Publishers for validation results
+        self.validation_pub = self.create_publisher(
+            Float64, '/validation/joint_error', 10
+        )
+
+        # Data storage for comparison
+        self.sim_joint_data = {}
+        self.sim_imu_data = {}
+        self.real_joint_data = {}
+        self.real_imu_data = {}
+
+        # Validation parameters
+        self.validation_window = 100  # Number of samples to average
+        self.joint_error_threshold = 0.1  # Radians
+        self.imu_error_threshold = 0.2   # Units (depends on sensor)
+
+        # Timer for validation
+        self.validation_timer = self.create_timer(1.0, self.perform_validation)
+
+        self.get_logger().info('Digital Twin Validator initialized')
+
+    def sim_joint_callback(self, msg):
+        """Store simulation joint data"""
+        for i, name in enumerate(msg.name):
+            if i < len(msg.position):
+                self.sim_joint_data[name] = {
+                    'position': msg.position[i],
+                    'velocity': msg.velocity[i] if i < len(msg.velocity) else 0.0,
+                    'effort': msg.effort[i] if i < len(msg.effort) else 0.0,
+                    'timestamp': time.time()
+                }
+
+    def sim_imu_callback(self, msg):
+        """Store simulation IMU data"""
+        self.sim_imu_data = {
+            'angular_velocity': [
+                msg.angular_velocity.x,
+                msg.angular_velocity.y,
+                msg.angular_velocity.z
+            ],
+            'linear_acceleration': [
+                msg.linear_acceleration.x,
+                msg.linear_acceleration.y,
+                msg.linear_acceleration.z
+            ],
+            'timestamp': time.time()
+        }
+
+    def real_joint_callback(self, msg):
+        """Store real robot joint data"""
+        for i, name in enumerate(msg.name):
+            if i < len(msg.position):
+                self.real_joint_data[name] = {
+                    'position': msg.position[i],
+                    'velocity': msg.velocity[i] if i < len(msg.velocity) else 0.0,
+                    'effort': msg.effort[i] if i < len(msg.effort) else 0.0,
+                    'timestamp': time.time()
+                }
+
+    def real_imu_callback(self, msg):
+        """Store real robot IMU data"""
+        self.real_imu_data = {
+            'angular_velocity': [
+                msg.angular_velocity.x,
+                msg.angular_velocity.y,
+                msg.angular_velocity.z
+            ],
+            'linear_acceleration': [
+                msg.linear_acceleration.x,
+                msg.linear_acceleration.y,
+                msg.linear_acceleration.z
+            ],
+            'timestamp': time.time()
+        }
+
+    def calculate_joint_error(self):
+        """Calculate error between simulation and real robot joints"""
+        errors = []
+
+        for joint_name in self.sim_joint_data:
+            if joint_name in self.real_joint_data:
+                sim_pos = self.sim_joint_data[joint_name]['position']
+                real_pos = self.real_joint_data[joint_name]['position']
+                error = abs(sim_pos - real_pos)
+                errors.append(error)
+
+        if errors:
+            avg_error = sum(errors) / len(errors)
+            return avg_error
+        else:
+            return float('inf')  # No data to compare
+
+    def calculate_imu_error(self):
+        """Calculate error between simulation and real robot IMU data"""
+        if not self.sim_imu_data or not self.real_imu_data:
+            return float('inf')
+
+        sim_ang_vel = np.array(self.sim_imu_data['angular_velocity'])
+        real_ang_vel = np.array(self.real_imu_data['angular_velocity'])
+        ang_vel_error = np.linalg.norm(sim_ang_vel - real_ang_vel)
+
+        sim_lin_acc = np.array(self.sim_imu_data['linear_acceleration'])
+        real_lin_acc = np.array(self.real_imu_data['linear_acceleration'])
+        lin_acc_error = np.linalg.norm(sim_lin_acc - real_lin_acc)
+
+        # Combine both errors
+        combined_error = (ang_vel_error + lin_acc_error) / 2.0
+        return combined_error
+
+    def perform_validation(self):
+        """Perform comprehensive validation"""
+        # Calculate joint position error
+        joint_error = self.calculate_joint_error()
+
+        # Calculate IMU error
+        imu_error = self.calculate_imu_error()
+
+        # Publish validation results
+        error_msg = Float64()
+        error_msg.data = joint_error
+        self.validation_pub.publish(error_msg)
+
+        # Log validation results
+        self.get_logger().info(f'Joint Error: {joint_error:.4f}, IMU Error: {imu_error:.4f}')
+
+        # Check if validation passes
+        joint_valid = joint_error < self.joint_error_threshold if joint_error != float('inf') else False
+        imu_valid = imu_error < self.imu_error_threshold if imu_error != float('inf') else False
+
+        if joint_valid and imu_valid:
+            self.get_logger().info('Digital Twin validation PASSED')
+        else:
+            self.get_logger().warn('Digital Twin validation FAILED')
+            if not joint_valid:
+                self.get_logger().warn(f'Joint validation failed (threshold: {self.joint_error_threshold})')
+            if not imu_valid:
+                self.get_logger().warn(f'IMU validation failed (threshold: {self.imu_error_threshold})')
+
+    def generate_validation_report(self):
+        """Generate a comprehensive validation report"""
+        report = {
+            'timestamp': time.time(),
+            'joint_validation': {
+                'passed': self.calculate_joint_error() < self.joint_error_threshold,
+                'error': self.calculate_joint_error(),
+                'threshold': self.joint_error_threshold
+            },
+            'imu_validation': {
+                'passed': self.calculate_imu_error() < self.imu_error_threshold,
+                'error': self.calculate_imu_error(),
+                'threshold': self.imu_error_threshold
+            },
+            'overall_status': 'PASS' if (
+                self.calculate_joint_error() < self.joint_error_threshold and
+                self.calculate_imu_error() < self.imu_error_threshold
+            ) else 'FAIL'
+        }
+
+        return report
+
+def main(args=None):
+    rclpy.init(args=args)
+    validator = DigitalTwinValidator()
+
+    try:
+        rclpy.spin(validator)
+    except KeyboardInterrupt:
+        # Generate final report
+        report = validator.generate_validation_report()
+        print("Final Validation Report:")
+        print(f"  Overall Status: {report['overall_status']}")
+        print(f"  Joint Validation: {'PASS' if report['joint_validation']['passed'] else 'FAIL'}")
+        print(f"  IMU Validation: {'PASS' if report['imu_validation']['passed'] else 'FAIL'}")
+    finally:
+        validator.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+## Deployment and Integration
+
+### Simulation-to-Reality Transfer
+
+Create scripts for transferring learned behaviors from simulation to reality:
+
+```python
+# utils/sim2real_transfer.py
+#!/usr/bin/env python3
+
+import numpy as np
+import torch
+from scipy.spatial.transform import Rotation as R
+
+class Sim2RealTransfer:
+    def __init__(self):
+        self.sim_params = {}
+        self.real_params = {}
+        self.transfer_functions = {}
+
+    def domain_randomization(self, sim_data, randomization_params=None):
+        """
+        Apply domain randomization to simulation data to improve sim-to-real transfer
+        """
+        if randomization_params is None:
+            randomization_params = {
+                'mass_variance': 0.1,      # 10% variance in mass
+                'friction_variance': 0.2,  # 20% variance in friction
+                'sensor_noise': 0.05,      # 5% sensor noise
+                'actuator_delay': 0.01     # 10ms actuator delay
+            }
+
+        randomized_data = sim_data.copy()
+
+        # Add mass variance
+        for i in range(len(randomized_data.get('masses', []))):
+            variance = np.random.uniform(-randomization_params['mass_variance'],
+                                       randomization_params['mass_variance'])
+            randomized_data['masses'][i] *= (1 + variance)
+
+        # Add friction variance
+        for i in range(len(randomized_data.get('friction', []))):
+            variance = np.random.uniform(-randomization_params['friction_variance'],
+                                       randomization_params['friction_variance'])
+            randomized_data['friction'][i] *= (1 + variance)
+
+        # Add sensor noise
+        if 'sensor_data' in randomized_data:
+            noise = np.random.normal(0, randomization_params['sensor_noise'],
+                                   randomized_data['sensor_data'].shape)
+            randomized_data['sensor_data'] += noise
+
+        # Simulate actuator delay
+        if 'actuator_commands' in randomized_data:
+            # In practice, this would involve buffering and delayed execution
+            pass
+
+        return randomized_data
+
+    def system_identification(self, sim_model, real_data):
+        """
+        Identify system parameters from real data to improve simulation accuracy
+        """
+        # This is a simplified example - in practice, this would be more complex
+        identified_params = {}
+
+        # Estimate actual mass from force and acceleration data
+        forces = real_data.get('applied_forces', [])
+        accelerations = real_data.get('measured_accelerations', [])
+
+        if len(forces) > 0 and len(accelerations) > 0:
+            # Use least squares to estimate mass (F = ma -> m = F/a)
+            try:
+                estimated_mass = np.mean([f/a if a != 0 else 0 for f, a in zip(forces, accelerations)])
+                identified_params['mass'] = estimated_mass
+            except:
+                pass
+
+        return identified_params
+
+    def adaptive_control(self, policy, adaptation_params):
+        """
+        Adapt control policy based on real-world performance
+        """
+        # This would implement model reference adaptive control or similar techniques
+        adapted_policy = policy.copy()
+
+        # Adjust control gains based on adaptation parameters
+        for param_name, adjustment in adaptation_params.items():
+            if param_name in adapted_policy:
+                adapted_policy[param_name] *= (1 + adjustment)
+
+        return adapted_policy
+
+    def validate_transfer(self, sim_policy, real_performance):
+        """
+        Validate that the transferred policy performs adequately on the real robot
+        """
+        # Define success criteria
+        success_threshold = 0.8  # 80% of simulation performance is acceptable
+
+        sim_score = sim_policy.get('performance_score', 1.0)
+        real_score = real_performance.get('performance_score', 0.0)
+
+        if sim_score > 0:
+            transfer_ratio = real_score / sim_score
+            success = transfer_ratio >= success_threshold
+        else:
+            success = False
+
+        return {
+            'success': success,
+            'transfer_ratio': transfer_ratio,
+            'sim_score': sim_score,
+            'real_score': real_score,
+            'threshold': success_threshold
+        }
+
+# Example usage
+def main():
+    transfer_tool = Sim2RealTransfer()
+
+    # Example: Apply domain randomization
+    sim_data = {
+        'masses': [1.0, 2.0, 1.5],
+        'friction': [0.5, 0.3, 0.4],
+        'sensor_data': np.random.random(10)
+    }
+
+    randomized_data = transfer_tool.domain_randomization(sim_data)
+    print("Domain randomization applied successfully")
+
+    # Example: Validate transfer
+    sim_policy = {'performance_score': 0.95}
+    real_performance = {'performance_score': 0.85}
+
+    validation_result = transfer_tool.validate_transfer(sim_policy, real_performance)
+    print(f"Transfer validation: {validation_result}")
+
+if __name__ == "__main__":
+    main()
+```
+
+## Summary
+
+This chapter provided a comprehensive implementation of Digital Twin systems for humanoid robotics, covering:
+
+- Complete simulation environments in both Gazebo and Unity
+- Advanced sensor and actuator modeling
+- AI training integration with simulation
+- Validation techniques for simulation accuracy
+- Simulation-to-reality transfer methodologies
+
+The practical implementation demonstrates how to create robust Digital Twin systems that can effectively support humanoid robot development, testing, and training.
+
+## Next Steps
+
+- Deploy the simulation system to your specific humanoid robot
+- Integrate with your existing control systems
+- Use the simulation for AI model training
+- Validate the Digital Twin against physical hardware
+- Implement advanced features like reinforcement learning

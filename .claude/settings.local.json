@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git fetch --all --prune)",
+      "Bash(powershell -ExecutionPolicy Bypass -File \".specify/scripts/powershell/check-prerequisites.ps1\" -Json)",
+      "Bash(powershell -ExecutionPolicy Bypass -File \".specify/scripts/powershell/setup-plan.ps1\" -Json)",
+      "Bash(powershell -Command \"Test-Path ''C:\\Users\\MT\\Desktop\\FARHEEN giaic\\specs\\001-nvidia-isaac-ai-brain\\checklists''\")",
+      "Bash(dir \"C:\\Users\\MT\\Desktop\\FARHEEN giaic\\docs\\ai-brain\"\")",
+      "Bash(powershell -Command \"Get-ChildItem -Path ''C:\\Users\\MT\\Desktop\\FARHEEN giaic\\docs\\ai-brain\\''\")",
+      "Bash(.specify/scripts/powershell/update-agent-context.ps1 -AgentType claude)",
+      "Bash(dir .specify/scripts /s)",
+      "Bash(.specify/scripts/powershell/check-prerequisites.ps1 -Json)",
+      "Bash(powershell -ExecutionPolicy Bypass -File \".specify/scripts/powershell/create-new-feature.ps1\" -ShortName \"docusaurus-rag-ingestion\" -Number 1 \"/sp.specify Vector ingestion pipeline for a Docusaurus-based RAG system\n\nObjective:\nCrawl the deployed Docusaurus website, extract clean book content, generate semantic embeddings using Cohere, and store them in Qdrant for reliable downstream retrieval.\n\nConstraints:\n- Use Cohere for embeddings \\(single model, consistent dimensions\\)\n- Use Qdrant Cloud as the vector store\n- Ingest content only from deployed Docusaurus URLs\n- Chunk text for RAG-optimized retrieval\n- Store rich metadata \\(source URL, title, section\\)\n- Secrets via environment variables\n- Deterministic, re-runnable pipeline\n\nNot building:\n- Retrieval or query APIs\n- Agent logic\n- Frontend integration\n- Answer generation\")",
+      "Bash(powershell -ExecutionPolicy Bypass -File \".specify/scripts/powershell/update-agent-context.ps1\" -AgentType claude)",
+      "Skill(sp.tasks)",
+      "Bash(uv run python main.py)"
+    ]
+  }
+}

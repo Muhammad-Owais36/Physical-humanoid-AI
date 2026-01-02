@@ -1,0 +1,272 @@
+---
+title: ROS 2 Fundamentals
+sidebar_position: 1
+---
+
+# ROS 2 Fundamentals: The Robotic Nervous System
+
+## Learning Objectives
+
+By the end of this chapter, you will be able to:
+- Understand the core concepts and architecture of ROS 2
+- Explain the communication patterns in ROS 2 (topics, services, actions)
+- Set up a basic ROS 2 development environment
+- Create and run simple ROS 2 nodes
+- Understand the role of ROS 2 in humanoid robotics
+
+## Prerequisites
+
+Before starting this chapter, you should have:
+- Basic programming knowledge (Python or C++)
+- Familiarity with Linux command line
+- Understanding of basic robotics concepts
+- Access to a Linux-based development environment
+
+## Introduction to ROS 2
+
+Robot Operating System 2 (ROS 2) is not an operating system but rather a flexible framework for writing robot software. It is a collection of tools, libraries, and conventions that aim to simplify the task of creating complex and robust robot behavior across a wide variety of robotic platforms.
+
+ROS 2 is the next generation of the Robot Operating System, designed to address the limitations of ROS 1 and provide enhanced features for production robotics applications. It includes improvements in real-time performance, security, and support for commercial products.
+
+### Why ROS 2 for Humanoid Robotics?
+
+Humanoid robots are complex systems that require coordination between many different components:
+
+- **Sensors**: Cameras, LiDAR, IMUs, force/torque sensors
+- **Actuators**: Joint motors, grippers, displays
+- **Processing**: Perception, planning, control, learning
+- **Communication**: Human-robot interaction, external systems
+
+ROS 2 provides the communication infrastructure that allows these diverse components to work together seamlessly, acting as the "nervous system" of the humanoid robot.
+
+## Core Architecture Concepts
+
+### Nodes
+
+A node is an executable that uses ROS 2 to communicate with other nodes. In a humanoid robot, you might have nodes for:
+
+- Joint controllers
+- Sensor processing
+- Perception algorithms
+- Path planning
+- Human-robot interaction
+
+Nodes are lightweight processes that can be distributed across multiple machines and are managed by the ROS 2 runtime system.
+
+### Communication Patterns
+
+ROS 2 provides three main communication patterns:
+
+#### Topics (Publish/Subscribe)
+
+Topics enable asynchronous, many-to-many communication. Publishers send messages to topics, and subscribers receive messages from topics. This is ideal for:
+
+- Sensor data distribution (camera images, LiDAR scans)
+- Robot state broadcasting (joint positions, battery levels)
+- Continuous data streams
+
+```python
+# Example: Publishing joint states
+import rclpy
+from sensor_msgs.msg import JointState
+from std_msgs.msg import Header
+
+def publish_joint_states():
+    node = rclpy.create_node('joint_state_publisher')
+    publisher = node.create_publisher(JointState, 'joint_states', 10)
+
+    msg = JointState()
+    msg.header = Header()
+    msg.name = ['joint1', 'joint2', 'joint3']
+    msg.position = [0.0, 0.5, -0.3]
+
+    publisher.publish(msg)
+```
+
+#### Services (Request/Response)
+
+Services enable synchronous, one-to-one communication. A client sends a request and waits for a response. This is suitable for:
+
+- Configuration changes
+- Calibration procedures
+- One-time commands
+- Querying system status
+
+#### Actions (Goal/Feedback/Result)
+
+Actions are for long-running tasks that provide feedback during execution. They're perfect for:
+
+- Navigation goals
+- Manipulation tasks
+- Calibration sequences
+- Any process that takes time and needs monitoring
+
+## Setting Up Your ROS 2 Environment
+
+### Installation
+
+For Ubuntu systems, install ROS 2 using the official installation guide. The most common distribution is ROS 2 Humble Hawksbill, which provides long-term support.
+
+```bash
+# Add the ROS 2 apt repository
+sudo apt update && sudo apt install -y curl gnupg lsb-release
+sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
+
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(source /etc/os-release && echo $UBUNTU_CODENAME) main" | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
+
+sudo apt update
+sudo apt install ros-humble-desktop
+```
+
+### Environment Setup
+
+Add ROS 2 to your shell environment:
+
+```bash
+source /opt/ros/humble/setup.bash
+```
+
+To make this permanent, add it to your `.bashrc`:
+
+```bash
+echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
+```
+
+## Creating Your First ROS 2 Package
+
+A ROS 2 package is a container for related functionality. For humanoid robotics, you might have packages for:
+
+- `humanoid_control`: Joint control and trajectory generation
+- `humanoid_perception`: Vision, object detection, SLAM
+- `humanoid_navigation`: Path planning and obstacle avoidance
+
+Create a new workspace:
+
+```bash
+mkdir -p ~/ros2_ws/src
+cd ~/ros2_ws
+colcon build
+source install/setup.bash
+```
+
+## Basic Node Example
+
+Let's create a simple ROS 2 node that could be part of a humanoid robot's nervous system:
+
+```python
+#!/usr/bin/env python3
+
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import JointState
+from geometry_msgs.msg import Twist
+
+class HumanoidNervousSystem(Node):
+    def __init__(self):
+        super().__init__('humanoid_nervous_system')
+
+        # Publisher for joint states
+        self.joint_state_publisher = self.create_publisher(
+            JointState,
+            'joint_states',
+            10
+        )
+
+        # Subscriber for velocity commands
+        self.cmd_vel_subscriber = self.create_subscription(
+            Twist,
+            'cmd_vel',
+            self.cmd_vel_callback,
+            10
+        )
+
+        # Timer for periodic joint state publishing
+        self.timer = self.create_timer(0.1, self.publish_joint_states)
+
+        self.get_logger().info('Humanoid Nervous System node started')
+
+    def cmd_vel_callback(self, msg):
+        self.get_logger().info(f'Received velocity command: {msg}')
+        # Process velocity command for humanoid movement
+
+    def publish_joint_states(self):
+        msg = JointState()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.name = ['left_hip', 'left_knee', 'left_ankle',
+                   'right_hip', 'right_knee', 'right_ankle']
+        msg.position = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # Placeholder values
+        self.joint_state_publisher.publish(msg)
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = HumanoidNervousSystem()
+
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+## Quality of Service (QoS) in ROS 2
+
+QoS settings allow you to control the reliability and performance characteristics of communication. For humanoid robotics, these settings are crucial:
+
+- **Reliable vs Best Effort**: Use reliable for critical control data, best effort for sensor streams
+- **Durability**: Whether messages persist for late-joining subscribers
+- **History**: How many messages to keep in the queue
+
+```python
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
+
+# For critical control data
+control_qos = QoSProfile(
+    depth=1,
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.TRANSIENT_LOCAL
+)
+
+# For sensor data
+sensor_qos = QoSProfile(
+    depth=10,
+    reliability=ReliabilityPolicy.BEST_EFFORT,
+    durability=DurabilityPolicy.VOLATILE
+)
+```
+
+## Launch Files
+
+Launch files allow you to start multiple nodes with a single command, which is essential for humanoid robots with many components:
+
+```xml
+<launch>
+  <!-- Robot state publisher for TF transforms -->
+  <node pkg="robot_state_publisher" exec="robot_state_publisher" name="robot_state_publisher">
+    <param name="robot_description" value="$(var robot_description)"/>
+  </node>
+
+  <!-- Joint state publisher -->
+  <node pkg="joint_state_publisher" exec="joint_state_publisher" name="joint_state_publisher"/>
+
+  <!-- Humanoid controller -->
+  <node pkg="humanoid_control" exec="nervous_system" name="nervous_system"/>
+</launch>
+```
+
+## Summary
+
+ROS 2 serves as the foundational communication layer for humanoid robots, enabling the integration of diverse sensors, actuators, and processing components. Its flexible architecture supports the complex, distributed nature of humanoid robot systems while providing the reliability and performance needed for safe operation.
+
+In the next chapter, we'll explore how ROS 2 integrates with Python-based robotics applications and examine more advanced communication patterns.
+
+## Next Steps
+
+- Practice creating ROS 2 packages and nodes
+- Experiment with different QoS settings
+- Learn about ROS 2 launch files and parameter management
+- Explore the ROS 2 tool ecosystem (RViz2, rqt, ros2cli)

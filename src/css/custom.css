@@ -1,0 +1,325 @@
+/**
+ * Any CSS included here will be global. The classic template
+ * bundles Infima by default. Infima is a CSS framework designed to
+ * work well for content-centric websites.
+ */
+
+/* Modernized primary colors */
+:root {
+  --ifm-color-primary: #2563eb;           /* Modern blue */
+  --ifm-color-primary-dark: #1d4ed8;      /* Darker blue */
+  --ifm-color-primary-darker: #1e40af;    /* Even darker blue */
+  --ifm-color-primary-darkest: #1e3a8a;   /* Darkest blue */
+  --ifm-color-primary-light: #3b82f6;     /* Lighter blue */
+  --ifm-color-primary-lighter: #60a5fa;   /* Even lighter blue */
+  --ifm-color-primary-lightest: #93c5fd;  /* Lightest blue */
+  --ifm-code-font-size: 95%;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+
+  /* Extended color palette */
+  --ifm-color-secondary: #64748b;         /* Secondary text */
+  --ifm-color-success: #10b981;           /* Success/green */
+  --ifm-color-info: #0ea5e9;              /* Info/blue */
+  --ifm-color-warning: #f59e0b;           /* Warning/yellow */
+  --ifm-color-danger: #ef4444;            /* Danger/red */
+
+  /* Background colors */
+  --ifm-background-color: #ffffff;
+  --ifm-background-surface-color: #f8fafc;
+
+  /* Text colors */
+  --ifm-text-color: #1e293b;
+  --ifm-text-color-secondary: #64748b;
+  --ifm-text-color-inverse: #ffffff;
+
+  /* Base font size */
+  --ifm-font-size-base: 16px;
+
+  /* Heading sizes */
+  --ifm-h1-font-size: 2.5rem;    /* 40px */
+  --ifm-h2-font-size: 2rem;      /* 32px */
+  --ifm-h3-font-size: 1.5rem;    /* 24px */
+  --ifm-h4-font-size: 1.25rem;   /* 20px */
+  --ifm-h5-font-size: 1.125rem;  /* 18px */
+  --ifm-h6-font-size: 1rem;      /* 16px */
+
+  /* Line heights */
+  --ifm-leading-desktop: 1.5;
+  --ifm-leading-mobile: 1.4;
+
+  /* Font weights */
+  --ifm-font-weight-semibold: 600;
+  --ifm-font-weight-bold: 700;
+
+  /* Spacing system */
+  --ifm-spacing-horizontal: 1.5rem;
+  --ifm-spacing-vertical: 1.5rem;
+
+  /* Spacing scale */
+  --ifm-global-spacing: 1rem;
+  --ifm-spacing-scale-sm: calc(var(--ifm-global-spacing) * 0.25);  /* 0.25rem */
+  --ifm-spacing-scale-md: calc(var(--ifm-global-spacing) * 0.5);   /* 0.5rem */
+  --ifm-spacing-scale-lg: calc(var(--ifm-global-spacing) * 1.5);   /* 1.5rem */
+  --ifm-spacing-scale-xl: calc(var(--ifm-global-spacing) * 3);     /* 3rem */
+  --ifm-spacing-scale-xxl: calc(var(--ifm-global-spacing) * 4);    /* 4rem */
+}
+
+/* Enhanced dark mode colors */
+[data-theme='dark'] {
+  --ifm-color-primary: #3b82f6;           /* Brighter blue */
+  --ifm-color-primary-dark: #2563eb;      /* Consistent dark blue */
+  --ifm-color-primary-darker: #1d4ed8;    /* Darker blue */
+  --ifm-color-primary-darkest: #1e3a8a;   /* Darkest blue */
+  --ifm-color-primary-light: #60a5fa;     /* Light blue */
+  --ifm-color-primary-lighter: #93c5fd;   /* Lighter blue */
+  --ifm-color-primary-lightest: #bfdbfe;   /* Lightest blue */
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+
+  /* Dark mode specific colors */
+  --ifm-background-color: #0f172a;
+  --ifm-background-surface-color: #1e293b;
+  --ifm-text-color: #f1f5f9;
+  --ifm-text-color-secondary: #cbd5e1;
+}
+
+/* Modern font stack */
+html {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+}
+
+/* Enhanced typography */
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  font-weight: var(--ifm-font-weight-semibold);
+  margin-top: 2.5rem;
+  margin-bottom: 1rem;
+  line-height: 1.25;
+}
+
+.markdown h2 {
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+  padding-bottom: 0.3rem;
+}
+
+.markdown p {
+  line-height: var(--ifm-leading-desktop);
+  margin-bottom: 1.5rem;
+  max-width: 75ch; /* Optimal line length for readability */
+}
+
+.markdown a {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.markdown a:hover {
+  text-decoration-thickness: 2px;
+}
+
+/* Enhanced container layouts */
+.container {
+  padding-left: var(--ifm-spacing-horizontal);
+  padding-right: var(--ifm-spacing-horizontal);
+}
+
+/* Card-like styling for content sections */
+.theme-doc-markdown,
+.main-wrapper > div {
+  background-color: var(--ifm-background-surface-color);
+  border-radius: 0.75rem;
+  padding: var(--ifm-spacing-scale-lg);
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+  margin-bottom: var(--ifm-spacing-scale-lg);
+}
+
+/* Improved code block styling */
+.prism-code {
+  border-radius: 0.5rem;
+  padding: 1rem !important;
+  font-size: 0.9rem;
+  overflow-x: auto;
+}
+
+/* Enhanced admonitions (info/warning blocks) */
+.alert {
+  border-radius: 0.5rem;
+  border-left-width: 4px;
+}
+
+.alert--info {
+  border-left-color: var(--ifm-color-info);
+  background-color: color-mix(in srgb, var(--ifm-color-info), transparent 95%);
+}
+
+.alert--warning {
+  border-left-color: var(--ifm-color-warning);
+  background-color: color-mix(in srgb, var(--ifm-color-warning), transparent 95%);
+}
+
+.alert--success {
+  border-left-color: var(--ifm-color-success);
+  background-color: color-mix(in srgb, var(--ifm-color-success), transparent 95%);
+}
+
+.alert--danger {
+  border-left-color: var(--ifm-color-danger);
+  background-color: color-mix(in srgb, var(--ifm-color-danger), transparent 95%);
+}
+
+/* Modern navbar styling */
+.navbar {
+  background-color: var(--ifm-background-color);
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+}
+
+.navbar__inner {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
+.navbar__brand {
+  font-weight: var(--ifm-font-weight-semibold);
+  color: var(--ifm-color-primary);
+}
+
+.navbar__brand:hover {
+  color: var(--ifm-color-primary-dark);
+}
+
+.navbar__item {
+  font-weight: var(--ifm-font-weight-medium);
+  padding: 0.5rem 1rem;
+  border-radius: 0.375rem;
+  transition: background-color 0.2s ease;
+}
+
+.navbar__item:hover {
+  background-color: var(--ifm-color-emphasis-100);
+}
+
+/* Mobile menu styling */
+.navbar-sidebar__brand {
+  padding: 1rem;
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+}
+
+.navbar-sidebar__items {
+  padding: 1rem;
+}
+
+/* Enhanced sidebar styling */
+.sidebar {
+  border-right: 1px solid var(--ifm-color-emphasis-200);
+  background-color: var(--ifm-background-surface-color);
+}
+
+.menu {
+  padding: 1rem 0.5rem;
+}
+
+.menu__list-item {
+  margin-bottom: 0.125rem;
+}
+
+.menu__list-item-collapsible {
+  border-radius: 0.375rem;
+  margin: 0.125rem 0;
+}
+
+.menu__link {
+  border-radius: 0.375rem;
+  margin: 0.125rem 0;
+  padding: 0.5rem 1rem;
+  transition: all 0.2s ease;
+}
+
+.menu__link:hover {
+  background-color: var(--ifm-color-emphasis-100);
+}
+
+.menu__link--active {
+  background-color: color-mix(in srgb, var(--ifm-color-primary), transparent 90%);
+  color: var(--ifm-color-primary);
+  font-weight: var(--ifm-font-weight-semibold);
+}
+
+/* Collapsible item styling */
+.menu__caret {
+  border-radius: 0.25rem;
+}
+
+.menu__caret:hover {
+  background-color: var(--ifm-color-emphasis-100);
+}
+
+/* Mobile optimizations */
+@media (max-width: 996px) {
+  .navbar__items--right {
+    min-width: auto;
+  }
+
+  .sidebar {
+    border-right: none;
+    border-bottom: 1px solid var(--ifm-color-emphasis-200);
+  }
+
+  .container {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  /* Adjust font sizes for mobile */
+  :root {
+    --ifm-h1-font-size: 2rem;
+    --ifm-h2-font-size: 1.5rem;
+    --ifm-h3-font-size: 1.25rem;
+  }
+}
+
+/* Tablet optimizations */
+@media (min-width: 768px) and (max-width: 996px) {
+  .theme-doc-sidebar-container {
+    flex-shrink: 0;
+    width: 280px;
+  }
+}
+
+/* Modern footer styling */
+.footer {
+  background-color: var(--ifm-background-surface-color);
+  border-top: 1px solid var(--ifm-color-emphasis-200);
+  padding-top: var(--ifm-spacing-scale-xl);
+  padding-bottom: var(--ifm-spacing-scale-xl);
+  margin-top: var(--ifm-spacing-scale-xl);
+}
+
+.footer__title {
+  font-weight: var(--ifm-font-weight-semibold);
+  margin-bottom: 1rem;
+  color: var(--ifm-text-color);
+}
+
+.footer__item a {
+  color: var(--ifm-text-color-secondary);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.footer__item a:hover {
+  color: var(--ifm-color-primary);
+  text-decoration: underline;
+}
+
+.footer__copyright {
+  margin-top: var(--ifm-spacing-scale-lg);
+  color: var(--ifm-text-color-secondary);
+  font-size: 0.875rem;
+}

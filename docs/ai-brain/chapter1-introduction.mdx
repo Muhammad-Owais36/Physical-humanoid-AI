@@ -1,0 +1,768 @@
+---
+title: NVIDIA Isaac Fundamentals - AI-Robot Brain
+sidebar_position: 1
+---
+
+# NVIDIA Isaac Fundamentals: AI-Robot Brain
+
+## Learning Objectives
+
+By the end of this chapter, you will be able to:
+- Understand the NVIDIA Isaac platform and its role in AI-powered robotics
+- Identify the key components of the Isaac ecosystem (Isaac Sim, Isaac ROS, Isaac Apps)
+- Set up the NVIDIA Isaac development environment for humanoid robotics
+- Create basic perception and navigation pipelines using Isaac tools
+- Integrate Isaac components with ROS 2 for humanoid robot applications
+
+## Prerequisites
+
+Before starting this chapter, you should have:
+- Understanding of basic robotics concepts and ROS 2
+- Experience with Python and C++ programming
+- Knowledge of deep learning fundamentals
+- Access to NVIDIA GPU hardware (recommended: RTX 3080 or better)
+- Familiarity with Docker and containerization concepts
+
+## Introduction to NVIDIA Isaac Platform
+
+The NVIDIA Isaac platform is a comprehensive solution for developing, simulating, and deploying AI-powered robots. It provides a complete ecosystem that includes:
+
+- **Isaac Sim**: A photorealistic simulation environment built on NVIDIA Omniverse
+- **Isaac ROS**: Hardware-accelerated perception and navigation packages
+- **Isaac Apps**: Pre-built applications for common robotics tasks
+- **Isaac Examples**: Sample code and demonstrations
+- **Isaac Lab**: Framework for robot learning and simulation
+
+For humanoid robotics, the Isaac platform offers unique advantages:
+- GPU-accelerated perception and planning
+- Photorealistic simulation for domain randomization
+- Pre-trained models for rapid deployment
+- Integration with NVIDIA's AI computing stack
+
+## Isaac Sim: Photorealistic Simulation
+
+Isaac Sim is NVIDIA's simulation environment built on the Omniverse platform. It provides:
+
+### Key Features
+
+1. **Photorealistic Rendering**: High-fidelity graphics for training perception models
+2. **PhysX Physics Engine**: Accurate physics simulation with GPU acceleration
+3. **USD Scene Format**: Universal Scene Description for complex scene management
+4. **ROS 2 Integration**: Native support for ROS 2 communication
+5. **Domain Randomization**: Tools for improving sim-to-real transfer
+6. **AI Training Environments**: Built-in support for reinforcement learning
+
+### Installing Isaac Sim
+
+Isaac Sim requires NVIDIA RTX hardware and can be installed in several ways:
+
+#### Docker Installation (Recommended)
+
+```bash
+# Pull the Isaac Sim Docker image
+docker pull nvcr.io/nvidia/isaac-sim:4.0.0
+
+# Run Isaac Sim with GPU support
+docker run --gpus all -it --rm \
+  --network=host \
+  --env "NVIDIA_VISIBLE_DEVICES=all" \
+  --env "NVIDIA_DRIVER_CAPABILITIES=all" \
+  --volume $(pwd):/workspace \
+  --volume /tmp/.X11-unix:/tmp/.X11-unix:rw \
+  --env DISPLAY=$DISPLAY \
+  --env QT_X11_NO_MITSHM=1 \
+  --privileged \
+  --name isaac_sim \
+  nvcr.io/nvidia/isaac-sim:4.0.0
+```
+
+#### Native Installation
+
+```bash
+# Download Isaac Sim from NVIDIA Developer website
+# Follow the installation guide for your platform
+# Ensure CUDA and compatible drivers are installed
+```
+
+### Basic Isaac Sim Concepts
+
+#### USD (Universal Scene Description)
+USD is the core scene format used by Isaac Sim. It allows for complex scene composition and asset management:
+
+```python
+# Example Python script to create a simple scene in Isaac Sim
+import omni
+from pxr import Usd, UsdGeom, Gf, Sdf
+
+# Create a new stage
+stage = Usd.Stage.CreateNew("simple_scene.usd")
+
+# Create a prim for the ground plane
+ground_prim = UsdGeom.Xform.Define(stage, "/World/Ground")
+plane_mesh = UsdGeom.Mesh.Define(stage, "/World/Ground/Plane")
+# Set plane properties (implementation details would go here)
+
+# Create a robot prim
+robot_prim = UsdGeom.Xform.Define(stage, "/World/Robot")
+# Add robot geometry and properties
+
+# Save the stage
+stage.GetRootLayer().Save()
+```
+
+#### Omniverse Extensions
+Isaac Sim extends Omniverse with robotics-specific capabilities:
+
+- **Robot Framework**: Tools for robot modeling and simulation
+- **Sensors**: Physics-accurate sensor simulation
+- **Navigation**: Path planning and obstacle avoidance
+- **Manipulation**: Grasping and manipulation tools
+
+## Isaac ROS: Hardware-Accelerated Perception
+
+Isaac ROS packages provide GPU-accelerated implementations of common robotics algorithms:
+
+### Key Packages
+
+1. **Isaac ROS Image Pipeline**: GPU-accelerated image processing
+2. **Isaac ROS Stereo Dense Reconstruction**: 3D reconstruction from stereo cameras
+3. **Isaac ROS Apriltag**: GPU-accelerated AprilTag detection
+4. **Isaac ROS NITROS**: Network Interface for Trustworthy and Robust Orchestration of Streams
+5. **Isaac ROS DNN Inference**: Deep learning inference on GPU
+6. **Isaac ROS Object Detection**: Real-time object detection
+7. **Isaac ROS Visual SLAM**: Visual Simultaneous Localization and Mapping
+
+### Installing Isaac ROS
+
+```bash
+# Add NVIDIA package repository
+sudo apt update && sudo apt install wget
+wget https://developer.download.nvidia.com/devzone/devcenter/software/cuda/repos/ubuntu2004/x86_64/cuda-keyring_1.0-1_all.deb
+sudo dpkg -i cuda-keyring_1.0-1_all.deb
+sudo apt-get update
+
+# Install Isaac ROS packages
+sudo apt install nvidia-isaac-ros
+```
+
+### Isaac ROS Example: Image Pipeline
+
+```python
+# Example Isaac ROS image pipeline
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image
+from cv_bridge import CvBridge
+import cv2
+import numpy as np
+
+class IsaacImageProcessor(Node):
+    def __init__(self):
+        super().__init__('isaac_image_processor')
+
+        # Create publisher and subscriber
+        self.subscription = self.create_subscription(
+            Image,
+            '/camera/image_raw',
+            self.image_callback,
+            10
+        )
+        self.publisher = self.create_publisher(
+            Image,
+            '/camera/image_processed',
+            10
+        )
+
+        self.bridge = CvBridge()
+
+        # GPU-accelerated image processing parameters
+        self.enable_gpu_processing = True
+        self.detection_threshold = 0.5
+
+        self.get_logger().info('Isaac Image Processor initialized')
+
+    def image_callback(self, msg):
+        """Process image using GPU-accelerated methods"""
+        try:
+            # Convert ROS image to OpenCV format
+            cv_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+
+            # Apply GPU-accelerated processing
+            if self.enable_gpu_processing:
+                processed_image = self.gpu_process_image(cv_image)
+            else:
+                processed_image = self.cpu_process_image(cv_image)
+
+            # Convert back to ROS image
+            result_msg = self.bridge.cv2_to_imgmsg(processed_image, "bgr8")
+            result_msg.header = msg.header
+
+            # Publish processed image
+            self.publisher.publish(result_msg)
+
+        except Exception as e:
+            self.get_logger().error(f'Error processing image: {e}')
+
+    def gpu_process_image(self, image):
+        """Apply GPU-accelerated image processing"""
+        # In a real implementation, this would use CUDA or TensorRT
+        # For demonstration, we'll simulate GPU processing
+        import cupy as cp
+
+        # Convert to cupy array (GPU array)
+        gpu_image = cp.asarray(image)
+
+        # Apply some processing (e.g., edge detection)
+        # This is a simplified example - real GPU processing would be more complex
+        processed_gpu = cp.array(gpu_image)  # Copy the image
+
+        # Convert back to numpy for ROS
+        result = cp.asnumpy(processed_gpu)
+
+        return result.astype(np.uint8)
+
+    def cpu_process_image(self, image):
+        """CPU-based fallback processing"""
+        # Apply basic image processing
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        edges = cv2.Canny(gray, 50, 150)
+        result = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+        return result
+
+def main(args=None):
+    rclpy.init(args=args)
+    processor = IsaacImageProcessor()
+
+    try:
+        rclpy.spin(processor)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        processor.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+## Isaac Apps: Pre-built Robotics Applications
+
+Isaac Apps provide ready-to-use applications for common robotics tasks:
+
+### Available Apps
+
+1. **Isaac Navigation**: Complete navigation stack with SLAM and path planning
+2. **Isaac Manipulation**: Grasping and manipulation framework
+3. **Isaac Perception**: Object detection and scene understanding
+4. **Isaac Teleoperation**: Remote operation interfaces
+5. **Isaac Warehouse**: Inventory and logistics applications
+
+### Isaac Navigation Example
+
+```python
+# Example launch file for Isaac Navigation
+# launch/isaac_navigation.launch.py
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch_ros.actions import Node
+from launch_ros.substitutions import FindPackageShare
+
+def generate_launch_description():
+    # Declare launch arguments
+    declared_arguments = []
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "map",
+            default_value="turtlebot3_world.yaml",
+            description="Map to be used for navigation",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "use_sim_time",
+            default_value="true",
+            description="Use simulation time",
+        )
+    )
+
+    # Get configurations
+    map_config = LaunchConfiguration("map")
+    use_sim_time = LaunchConfiguration("use_sim_time")
+
+    # Isaac Navigation nodes
+    navigation_nodes = [
+        # Map server
+        Node(
+            package="nav2_map_server",
+            executable="map_server",
+            name="map_server",
+            parameters=[
+                {
+                    "yaml_filename": PathJoinSubstitution(
+                        [FindPackageShare("turtlebot3_navigation2"), "map", map_config]
+                    ),
+                    "use_sim_time": use_sim_time,
+                }
+            ],
+            output="screen",
+        ),
+        # Local costmap
+        Node(
+            package="nav2_costmap_2d",
+            executable="costmap_2d_node",
+            name="local_costmap",
+            parameters=[
+                PathJoinSubstitution(
+                    [FindPackageShare("turtlebot3_navigation2"), "param", "local_costmap_params.yaml"]
+                ),
+                {"use_sim_time": use_sim_time},
+            ],
+            output="screen",
+        ),
+        # Global costmap
+        Node(
+            package="nav2_costmap_2d",
+            executable="costmap_2d_node",
+            name="global_costmap",
+            parameters=[
+                PathJoinSubstitution(
+                    [FindPackageShare("turtlebot3_navigation2"), "param", "global_costmap_params.yaml"]
+                ),
+                {"use_sim_time": use_sim_time},
+            ],
+            output="screen",
+        ),
+        # Planner server
+        Node(
+            package="nav2_navfn_planner",
+            executable="navfn_planner",
+            name="navfn_planner",
+            parameters=[
+                PathJoinSubstitution(
+                    [FindPackageShare("turtlebot3_navigation2"), "param", "navfn_params.yaml"]
+                ),
+                {"use_sim_time": use_sim_time},
+            ],
+            output="screen",
+        ),
+        # Controller server
+        Node(
+            package="nav2_controller",
+            executable="controller_server",
+            name="controller_server",
+            parameters=[
+                PathJoinSubstitution(
+                    [FindPackageShare("turtlebot3_navigation2"), "param", "controller_params.yaml"]
+                ),
+                {"use_sim_time": use_sim_time},
+            ],
+            output="screen",
+        ),
+    ]
+
+    return LaunchDescription(declared_arguments + navigation_nodes)
+```
+
+## Isaac Examples and Tutorials
+
+Isaac provides numerous examples to help developers get started:
+
+### Basic Perception Example
+
+```python
+# Isaac perception example: Object detection
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image, CameraInfo
+from vision_msgs.msg import Detection2DArray, ObjectHypothesisWithPose
+from builtin_interfaces.msg import Duration
+import cv2
+import numpy as np
+from cv_bridge import CvBridge
+
+class IsaacObjectDetector(Node):
+    def __init__(self):
+        super().__init__('isaac_object_detector')
+
+        # Create subscribers and publishers
+        self.image_sub = self.create_subscription(
+            Image,
+            '/camera/image_raw',
+            self.image_callback,
+            10
+        )
+        self.camera_info_sub = self.create_subscription(
+            CameraInfo,
+            '/camera/camera_info',
+            self.camera_info_callback,
+            10
+        )
+        self.detection_pub = self.create_publisher(
+            Detection2DArray,
+            '/object_detections',
+            10
+        )
+
+        # Initialize components
+        self.bridge = CvBridge()
+        self.camera_info = None
+        self.detection_model = self.initialize_detection_model()
+
+        self.get_logger().info('Isaac Object Detector initialized')
+
+    def initialize_detection_model(self):
+        """Initialize GPU-accelerated detection model"""
+        # In a real implementation, this would load a TensorRT model
+        # For demonstration, we'll use a placeholder
+        return "tensorrt_model_placeholder"
+
+    def camera_info_callback(self, msg):
+        """Store camera information for 3D reconstruction"""
+        self.camera_info = msg
+
+    def image_callback(self, msg):
+        """Process image and detect objects"""
+        try:
+            # Convert ROS image to OpenCV
+            cv_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+
+            # Perform object detection (GPU-accelerated)
+            detections = self.detect_objects_gpu(cv_image)
+
+            # Create detection message
+            detection_msg = self.create_detection_message(detections, msg.header)
+
+            # Publish detections
+            self.detection_pub.publish(detection_msg)
+
+        except Exception as e:
+            self.get_logger().error(f'Error in object detection: {e}')
+
+    def detect_objects_gpu(self, image):
+        """Perform object detection using GPU acceleration"""
+        # Placeholder for GPU-accelerated detection
+        # In practice, this would use TensorRT or similar
+        detections = []
+
+        # Simulate detection results
+        height, width = image.shape[:2]
+        for i in range(3):  # Simulate 3 detections
+            x = np.random.randint(0, width - 100)
+            y = np.random.randint(0, height - 100)
+            w = np.random.randint(50, 100)
+            h = np.random.randint(50, 100)
+
+            detection = {
+                'bbox': [x, y, w, h],
+                'class': 'object',
+                'confidence': np.random.uniform(0.6, 0.9)
+            }
+            detections.append(detection)
+
+        return detections
+
+    def create_detection_message(self, detections, header):
+        """Create vision_msgs/Detection2DArray message"""
+        detection_array = Detection2DArray()
+        detection_array.header = header
+
+        for detection in detections:
+            vision_detection = Detection2D()
+            vision_detection.header = header
+
+            # Set bounding box
+            vision_detection.bbox.center.x = detection['bbox'][0] + detection['bbox'][2] / 2
+            vision_detection.bbox.center.y = detection['bbox'][1] + detection['bbox'][3] / 2
+            vision_detection.bbox.size_x = detection['bbox'][2]
+            vision_detection.bbox.size_y = detection['bbox'][3]
+
+            # Set results
+            result = ObjectHypothesisWithPose()
+            result.hypothesis.class_id = detection['class']
+            result.hypothesis.score = detection['confidence']
+            vision_detection.results.append(result)
+
+            detection_array.detections.append(vision_detection)
+
+        return detection_array
+
+def main(args=None):
+    rclpy.init(args=args)
+    detector = IsaacObjectDetector()
+
+    try:
+        rclpy.spin(detector)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        detector.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+## Integration with Humanoid Robotics
+
+For humanoid robots, Isaac components can be integrated in several ways:
+
+### Perception Pipeline for Humanoid Robots
+
+```python
+# Complete perception pipeline for humanoid robot
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image, PointCloud2, CameraInfo, Imu
+from geometry_msgs.msg import Twist, PoseStamped
+from nav_msgs.msg import Odometry
+from builtin_interfaces.msg import Time
+import numpy as np
+
+class HumanoidPerceptionPipeline(Node):
+    def __init__(self):
+        super().__init__('humanoid_perception_pipeline')
+
+        # Multiple sensor inputs for humanoid robot
+        self.head_camera_sub = self.create_subscription(
+            Image, '/head_camera/image_raw', self.head_camera_callback, 10
+        )
+        self.left_camera_sub = self.create_subscription(
+            Image, '/left_camera/image_raw', self.left_camera_callback, 10
+        )
+        self.right_camera_sub = self.create_subscription(
+            Image, '/right_camera/image_raw', self.right_camera_callback, 10
+        )
+        self.depth_camera_sub = self.create_subscription(
+            Image, '/depth_camera/image_raw', self.depth_camera_callback, 10
+        )
+        self.imu_sub = self.create_subscription(
+            Imu, '/imu/data', self.imu_callback, 10
+        )
+        self.odom_sub = self.create_subscription(
+            Odometry, '/odom', self.odom_callback, 10
+        )
+
+        # Publishers for processed data
+        self.object_detections_pub = self.create_publisher(
+            Detection2DArray, '/perception/object_detections', 10
+        )
+        self.spatial_detections_pub = self.create_publisher(
+            Detection3DArray, '/perception/spatial_detections', 10
+        )
+        self.semantic_map_pub = self.create_publisher(
+            OccupancyGrid, '/perception/semantic_map', 10
+        )
+
+        # Initialize perception components
+        self.initialize_perception_modules()
+
+        self.get_logger().info('Humanoid Perception Pipeline initialized')
+
+    def initialize_perception_modules(self):
+        """Initialize all perception modules"""
+        # Initialize object detection
+        self.object_detector = self.initialize_object_detection()
+
+        # Initialize stereo processing
+        self.stereo_processor = self.initialize_stereo_processing()
+
+        # Initialize SLAM
+        self.slam_module = self.initialize_slam()
+
+    def head_camera_callback(self, msg):
+        """Process head camera image for object detection"""
+        self.process_frontal_perception(msg)
+
+    def left_camera_callback(self, msg):
+        """Process left camera image for stereo vision"""
+        self.process_left_camera(msg)
+
+    def right_camera_callback(self, msg):
+        """Process right camera image for stereo vision"""
+        self.process_right_camera(msg)
+
+    def depth_camera_callback(self, msg):
+        """Process depth camera for 3D understanding"""
+        self.process_depth_data(msg)
+
+    def process_frontal_perception(self, image_msg):
+        """Process frontal scene understanding"""
+        # Detect objects in front of the robot
+        detections = self.object_detector.detect(image_msg)
+
+        # Estimate spatial positions using depth data
+        spatial_detections = self.estimate_spatial_positions(detections)
+
+        # Publish results
+        self.object_detections_pub.publish(detections)
+        self.spatial_detections_pub.publish(spatial_detections)
+
+    def initialize_object_detection(self):
+        """Initialize GPU-accelerated object detection"""
+        # This would initialize Isaac's object detection pipeline
+        class ObjectDetector:
+            def detect(self, image_msg):
+                # GPU-accelerated detection using TensorRT
+                pass
+
+        return ObjectDetector()
+
+    def initialize_stereo_processing(self):
+        """Initialize stereo vision processing"""
+        # This would initialize Isaac's stereo processing pipeline
+        class StereoProcessor:
+            def process(self, left_image, right_image):
+                # GPU-accelerated stereo matching
+                pass
+
+        return StereoProcessor()
+
+    def initialize_slam(self):
+        """Initialize SLAM module"""
+        # This would initialize Isaac's SLAM pipeline
+        class SlamModule:
+            def process(self, image, imu_data, odom_data):
+                # GPU-accelerated visual-inertial SLAM
+                pass
+
+        return SlamModule()
+
+def main(args=None):
+    rclpy.init(args=args)
+    pipeline = HumanoidPerceptionPipeline()
+
+    try:
+        rclpy.spin(pipeline)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        pipeline.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+## Isaac Lab: Framework for Robot Learning
+
+Isaac Lab provides a framework for robot learning and simulation:
+
+### Key Features
+
+1. **Embodied AI**: Framework for developing embodied AI applications
+2. **Simulation Environments**: Physics-accurate simulation for learning
+3. **Reinforcement Learning**: Built-in RL algorithms and environments
+4. **Motion Generation**: Tools for creating complex robot motions
+5. **Data Collection**: Framework for collecting robot data
+
+### Example: Simple Locomotion Training
+
+```python
+# Example locomotion training with Isaac Lab
+import torch
+import numpy as np
+
+class HumanoidLocomotionTrainer:
+    def __init__(self):
+        # Initialize neural network for locomotion policy
+        self.policy_network = self.create_policy_network()
+        self.optimizer = torch.optim.Adam(self.policy_network.parameters(), lr=1e-4)
+
+        # Initialize simulation environment
+        self.sim_env = self.initialize_simulation()
+
+        # Training parameters
+        self.max_episodes = 1000
+        self.max_steps = 1000
+        self.gamma = 0.99  # Discount factor
+
+    def create_policy_network(self):
+        """Create neural network for locomotion policy"""
+        class PolicyNetwork(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.fc1 = torch.nn.Linear(48, 256)  # Input: joint states, IMU, etc.
+                self.fc2 = torch.nn.Linear(256, 256)
+                self.fc3 = torch.nn.Linear(256, 128)
+                self.output = torch.nn.Linear(128, 24)  # Output: joint commands
+
+            def forward(self, x):
+                x = torch.relu(self.fc1(x))
+                x = torch.relu(self.fc2(x))
+                x = torch.relu(self.fc3(x))
+                return torch.tanh(self.output(x))  # Actions between -1 and 1
+
+        return PolicyNetwork()
+
+    def train_episode(self):
+        """Train for one episode"""
+        # Reset simulation
+        obs = self.sim_env.reset()
+        total_reward = 0
+
+        for step in range(self.max_steps):
+            # Get action from policy
+            obs_tensor = torch.FloatTensor(obs).unsqueeze(0)
+            action = self.policy_network(obs_tensor).squeeze(0).detach().numpy()
+
+            # Execute action in simulation
+            next_obs, reward, done, info = self.sim_env.step(action)
+
+            # Calculate loss and update policy
+            # (Implementation would depend on specific RL algorithm)
+
+            total_reward += reward
+            obs = next_obs
+
+            if done:
+                break
+
+        return total_reward
+
+    def train(self):
+        """Main training loop"""
+        for episode in range(self.max_episodes):
+            episode_reward = self.train_episode()
+
+            if episode % 100 == 0:
+                print(f"Episode {episode}, Average Reward: {episode_reward}")
+
+# Usage would require Isaac Lab installation and proper simulation setup
+```
+
+## Best Practices for Isaac Integration
+
+### Performance Optimization
+
+1. **GPU Utilization**: Maximize GPU usage for perception and planning
+2. **Memory Management**: Efficiently manage GPU memory for large models
+3. **Pipeline Optimization**: Optimize data flow between components
+4. **Multi-threading**: Use appropriate threading for different tasks
+
+### Development Workflow
+
+1. **Simulation First**: Develop and test in Isaac Sim before real hardware
+2. **Progressive Complexity**: Start with simple tasks and increase complexity
+3. **Validation**: Continuously validate results against ground truth
+4. **Documentation**: Maintain clear documentation of components and interfaces
+
+## Summary
+
+NVIDIA Isaac provides a comprehensive platform for AI-powered humanoid robotics, offering GPU-accelerated perception, planning, and learning capabilities. The platform includes Isaac Sim for photorealistic simulation, Isaac ROS for hardware-accelerated algorithms, and Isaac Apps for pre-built solutions.
+
+Key advantages for humanoid robotics include:
+- High-performance perception and planning
+- Photorealistic simulation for robust training
+- Pre-built applications and examples
+- Seamless integration with ROS 2
+- GPU acceleration for real-time performance
+
+## Next Steps
+
+- Install Isaac Sim and explore the basic tutorials
+- Set up Isaac ROS on your development system
+- Experiment with Isaac Apps for navigation and manipulation
+- Integrate Isaac components with your humanoid robot
+- Use Isaac Lab for robot learning applications

@@ -1,0 +1,11 @@
+Frontend and backend integration for local RAG chatbot
+
+Objective:
+Establish a local connection between the frontend and the FastAPI backend to enable end-to-end interaction with the RAG chatbot service.
+
+Constraints:
+- Backend: Existing FastAPI agent service
+- Frontend: Docusaurus-based book UI
+- Communication via HTTP API
+- Local development environment only
+- Environment-based configuration

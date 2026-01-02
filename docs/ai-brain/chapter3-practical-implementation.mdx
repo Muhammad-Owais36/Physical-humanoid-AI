@@ -1,0 +1,1658 @@
+---
+title: Isaac Practical Implementation - Navigation and Perception
+sidebar_position: 3
+---
+
+# Isaac Practical Implementation: Navigation and Perception
+
+## Learning Objectives
+
+By the end of this chapter, you will be able to:
+- Deploy complete Isaac-based navigation systems on humanoid robots
+- Implement real-time perception pipelines using Isaac ROS
+- Integrate Isaac Sim with physical robots for safe testing
+- Optimize Isaac applications for real-time performance
+- Troubleshoot common Isaac deployment issues
+
+## Prerequisites
+
+Before starting this chapter, you should have:
+- Understanding of Isaac platform components and concepts
+- Experience with ROS 2 and robotics development
+- Knowledge of NVIDIA GPU computing and CUDA
+- Familiarity with robot navigation and perception systems
+- Access to NVIDIA GPU hardware for acceleration
+
+## Complete Isaac Navigation System
+
+In this section, we'll build a complete navigation system for humanoid robots using Isaac components.
+
+### Isaac Navigation Stack Architecture
+
+```yaml
+# config/isaac_navigation_stack.yaml
+# Complete configuration for Isaac Navigation Stack
+amcl:
+  ros__parameters:
+    use_sim_time: false
+    alpha1: 0.2
+    alpha2: 0.2
+    alpha3: 0.2
+    alpha4: 0.2
+    alpha5: 0.2
+    base_frame_id: "base_link"
+    beam_count: 60
+    do_beamskip: false
+    global_frame_id: "map"
+    lambda_short: 0.1
+    likelihood_max_dist: 2.0
+    max_beams: 60
+    max_particles: 2000
+    min_particles: 500
+    odom_frame_id: "odom"
+    pf_err: 0.05
+    pf_z: 0.99
+    recovery_alpha_fast: 0.0
+    recovery_alpha_slow: 0.0
+    resample_interval: 1
+    robot_model_type: "nav2_amcl::DifferentialMotionModel"
+    save_pose_rate: 0.5
+    scan_topic: "scan"
+    sigma_hit: 0.2
+    tf_broadcast: true
+    transform_tolerance: 1.0
+    update_min_a: 0.2
+    update_min_d: 0.25
+    z_hit: 0.5
+    z_max: 0.05
+    z_rand: 0.5
+    z_short: 0.05
+
+bt_navigator:
+  ros__parameters:
+    use_sim_time: false
+    global_frame: "map"
+    robot_base_frame: "base_link"
+    odom_topic: "odom"
+    bt_loop_duration: 10
+    default_server_timeout: 20
+    enable_groot_monitoring: True
+    groot_zmq_publisher_port: 1666
+    groot_zmq_server_port: 1667
+    default_nav_to_pose_bt_xml: "config/nav_to_pose_sequence.xml"
+    plugin_lib_names:
+    - nav2_compute_path_to_pose_action_bt_node
+    - nav2_compute_path_through_poses_action_bt_node
+    - nav2_follow_path_action_bt_node
+    - nav2_spin_action_bt_node
+    - nav2_wait_action_bt_node
+    - nav2_assisted_teleop_action_bt_node
+    - nav2_back_up_action_bt_node
+    - nav2_drive_on_heading_bt_node
+    - nav2_clear_costmap_service_bt_node
+    - nav2_is_stuck_condition_bt_node
+    - nav2_goal_reached_condition_bt_node
+    - nav2_goal_updated_condition_bt_node
+    - nav2_initial_pose_received_condition_bt_node
+    - nav2_reinitialize_global_localization_service_bt_node
+    - nav2_rate_controller_bt_node
+    - nav2_distance_controller_bt_node
+    - nav2_speed_controller_bt_node
+    - nav2_truncate_path_action_bt_node
+    - nav2_truncate_path_local_action_bt_node
+    - nav2_goal_updater_node_bt_node
+    - nav2_recovery_node_bt_node
+    - nav2_pipeline_sequence_bt_node
+    - nav2_round_robin_node_bt_node
+    - nav2_transform_available_condition_bt_node
+    - nav2_time_expired_condition_bt_node
+    - nav2_path_expiring_timer_condition
+    - nav2_distance_traveled_condition_bt_node
+    - nav2_single_trigger_bt_node
+    - nav2_is_battery_low_condition_bt_node
+    - nav2_navigate_to_pose_action_bt_node
+    - nav2_remove_passed_goals_action_bt_node
+    - nav2_planner_selector_bt_node
+    - nav2_controller_selector_bt_node
+    - nav2_goal_checker_selector_bt_node
+    - nav2_controller_cancel_bt_node
+    - nav2_path_longer_on_approach_bt_node
+    - nav2_wait_cancel_bt_node
+    - nav2_spin_cancel_bt_node
+    - nav2_back_up_cancel_bt_node
+    - nav2_assisted_teleop_cancel_bt_node
+    - nav2_drive_on_heading_cancel_bt_node
+
+controller_server:
+  ros__parameters:
+    use_sim_time: false
+    controller_frequency: 20.0
+    min_x_velocity_threshold: 0.001
+    min_y_velocity_threshold: 0.001
+    min_theta_velocity_threshold: 0.001
+    progress_checker_plugin: "progress_checker"
+    goal_checker_plugin: "goal_checker"
+    controller_plugins: ["FollowPath"]
+
+    # DWB parameters
+    FollowPath:
+      plugin: "nav2_dwb_controller::DWBLocalPlanner"
+      debug_trajectory_details: True
+      min_vel_x: 0.0
+      min_vel_y: 0.0
+      max_vel_x: 0.5
+      max_vel_y: 0.0
+      max_vel_theta: 1.0
+      min_speed_xy: 0.0
+      max_speed_xy: 0.5
+      min_speed_theta: 0.0
+      acc_lim_x: 2.5
+      acc_lim_y: 0.0
+      acc_lim_theta: 3.2
+      decel_lim_x: -2.5
+      decel_lim_y: 0.0
+      decel_lim_theta: -3.2
+      vx_samples: 20
+      vy_samples: 5
+      vtheta_samples: 20
+      sim_time: 1.7
+      linear_granularity: 0.05
+      angular_granularity: 0.025
+      transform_tolerance: 0.2
+      xy_goal_tolerance: 0.25
+      yaw_goal_tolerance: 0.15
+      stateful: True
+      global_frame_id: "odom"
+      robot_base_frame: "base_link"
+      odom_topic: "odom"
+      trajectory_topic: "local_plan"
+      transform_tolerance: 0.1
+      use_dwa: True
+      max_vel_x: 0.50
+      min_vel_x: 0.05
+      max_vel_theta: 1.0
+      min_vel_theta: -1.0
+      min_speed_xy: 0.1
+      max_speed_xy: 0.4
+      min_speed_theta: 0.4
+      acc_lim_x: 2.5
+      acc_lim_y: 0.0
+      acc_lim_theta: 3.2
+      decel_lim_x: -2.5
+      decel_lim_y: 0.0
+      decel_lim_theta: -3.2
+      nllt_size: 3.0
+      prune_plan: True
+      prune_distance: 1.0
+      oscillation_reset_dist: 0.05
+      deviated_goal_distance: 0.3
+      forward_sampling_distance: 0.3
+      backward_sampling_distance: 0.3
+      sim_period: 0.1
+      angular_sim_granularity: 0.025
+      linear_sim_granularity: 0.05
+      xy_goal_tolerance: 0.25
+      yaw_goal_tolerance: 0.15
+      stateful: True
+      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
+      BaseObstacle.scale: 0.02
+      PathAlign.scale: 0.1
+      PathAlign.forward_point_distance: 0.1
+      GoalAlign.scale: 0.5
+      GoalAlign.forward_point_distance: 0.1
+      PathDist.scale: 0.1
+      GoalDist.scale: 0.8
+      RotateToGoal.scale: 0.2
+      RotateToGoal.slowing_factor: 5.0
+      RotateToGoal.lookahead_time: -1.0
+
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      update_frequency: 5.0
+      publish_frequency: 2.0
+      global_frame: "odom"
+      robot_base_frame: "base_link"
+      use_sim_time: false
+      rolling_window: true
+      width: 6
+      height: 6
+      resolution: 0.05
+      origin_x: -3.0
+      origin_y: -3.0
+      footprint: "[ [0.35, 0.25], [0.35, -0.25], [-0.35, -0.25], [-0.35, 0.25] ]"
+      plugins: ["voxel_layer", "inflation_layer"]
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 3.0
+        inflation_radius: 0.55
+      voxel_layer:
+        plugin: "nav2_costmap_2d::VoxelLayer"
+        enabled: True
+        publish_voxel_map: False
+        origin_z: 0.0
+        z_resolution: 0.05
+        z_voxels: 16
+        max_obstacle_height: 2.0
+        mark_threshold: 0
+        observation_sources: "scan"
+        scan:
+          topic: "/scan"
+          max_obstacle_height: 2.0
+          clearing: True
+          marking: True
+          data_type: "LaserScan"
+          raytrace_max_range: 3.0
+          raytrace_min_range: 0.0
+          obstacle_max_range: 2.5
+          obstacle_min_range: 0.0
+      always_send_full_costmap: True
+
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      update_frequency: 1.0
+      publish_frequency: 1.0
+      global_frame: "map"
+      robot_base_frame: "base_link"
+      use_sim_time: false
+      robot_radius: 0.3
+      resolution: 0.05
+      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: True
+        observation_sources: "scan"
+        scan:
+          topic: "/scan"
+          max_obstacle_height: 2.0
+          clearing: True
+          marking: True
+          data_type: "LaserScan"
+          raytrace_max_range: 3.0
+          raytrace_min_range: 0.0
+          obstacle_max_range: 2.5
+          obstacle_min_range: 0.0
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: True
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 3.0
+        inflation_radius: 0.55
+      always_send_full_costmap: True
+
+planner_server:
+  ros__parameters:
+    expected_planner_frequency: 20.0
+    use_sim_time: false
+    planner_plugins: ["GridBased"]
+    GridBased:
+      plugin: "nav2_navfn_planner::NavfnPlanner"
+      tolerance: 0.5
+      use_astar: false
+      allow_unknown: true
+
+velocity_smoother:
+  ros__parameters:
+    use_sim_time: false
+    smoothing_frequency: 20.0
+    scale_velocities: false
+    velocity_threshold: 0.0
+    velocity_scale: 1.0
+    max_velocity: [1.0, 0.0, 1.0]
+    min_velocity: [-1.0, 0.0, -1.0]
+    acceleration_limits: [2.5, 0.0, 3.2]
+    deceleration_limits: [-2.5, 0.0, -3.2]
+    acceleration_gains: [1.0, 0.0, 1.0]
+    deceleration_gains: [1.0, 0.0, 1.0]
+    velocity_error_window: 0.25
+```
+
+### Isaac Navigation Launch File
+
+```python
+# launch/isaac_humanoid_navigation.launch.py
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, GroupAction
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch_ros.actions import Node, SetParameter, PushRosNamespace
+from launch_ros.substitutions import FindPackageShare
+import os
+from ament_index_python.packages import get_package_share_directory
+
+def generate_launch_description():
+    # Declare launch arguments
+    declared_arguments = []
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "use_sim_time",
+            default_value="false",
+            description="Use simulation time",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "params_file",
+            default_value=PathJoinSubstitution(
+                [FindPackageShare("isaac_humanoid_navigation"), "config", "isaac_navigation_stack.yaml"]
+            ),
+            description="Full path to params file for navigation nodes",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "map",
+            default_value=PathJoinSubstitution(
+                [FindPackageShare("isaac_humanoid_navigation"), "maps", "humanoid_lab.yaml"]
+            ),
+            description="Full path to map file to load",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "use_composition",
+            default_value="True",
+            description="Use composed bringup if True",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "autostart",
+            default_value="True",
+            description="Automatically start the nav2 stack",
+        )
+    )
+
+    # Get configurations
+    use_sim_time = LaunchConfiguration("use_sim_time")
+    params_file = LaunchConfiguration("params_file")
+    map_yaml_file = LaunchConfiguration("map")
+    use_composition = LaunchConfiguration("use_composition")
+    autostart = LaunchConfiguration("autostart")
+
+    # Launch the main nodes
+    nav2_bringup_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution(
+                [FindPackageShare("nav2_bringup"), "launch", "bringup_launch.py"]
+            )
+        ),
+        launch_arguments={
+            "use_sim_time": use_sim_time,
+            "params_file": params_file,
+            "map": map_yaml_file,
+            "use_composition": use_composition,
+            "autostart": autostart,
+        }.items(),
+    )
+
+    # Isaac-specific nodes
+    isaac_perception_nodes = GroupAction(
+        actions=[
+            # Isaac stereo processing node
+            Node(
+                package="isaac_ros_stereo_image_proc",
+                executable="isaac_ros_stereo_rectify_node",
+                name="stereo_rectify",
+                parameters=[{"use_sim_time": use_sim_time}],
+                remappings=[
+                    ("left/image_raw", "/left_camera/image_raw"),
+                    ("right/image_raw", "/right_camera/image_raw"),
+                    ("left/camera_info", "/left_camera/camera_info"),
+                    ("right/camera_info", "/right_camera/camera_info"),
+                    ("left/image_rect", "/left_camera/image_rect"),
+                    ("right/image_rect", "/right_camera/image_rect"),
+                ],
+                output="screen",
+            ),
+
+            # Isaac object detection
+            Node(
+                package="isaac_ros_detectnet",
+                executable="isaac_ros_detectnet",
+                name="detectnet",
+                parameters=[
+                    {
+                        "model_name": "ssd_mobilenet_v2_coco",
+                        "input_topic": "/left_camera/image_rect",
+                        "use_sim_time": use_sim_time,
+                    }
+                ],
+                remappings=[
+                    ("image_input", "/left_camera/image_rect"),
+                    ("detections", "/isaac_detections"),
+                ],
+                output="screen",
+            ),
+        ]
+    )
+
+    # Isaac navigation enhancement nodes
+    isaac_navigation_enhancement = GroupAction(
+        actions=[
+            # Isaac visual SLAM for improved localization
+            Node(
+                package="isaac_ros_visual_slam",
+                executable="isaac_ros_visual_slam_node",
+                name="visual_slam",
+                parameters=[
+                    {
+                        "use_sim_time": use_sim_time,
+                        "enable_occupancy_map": True,
+                        "occupancy_map_resolution": 0.05,
+                        "occupancy_map_size": 100,
+                    }
+                ],
+                remappings=[
+                    ("visual_slam/imu", "/imu/data"),
+                    ("visual_slam/camera", "/left_camera/image_rect"),
+                    ("visual_slam/camera_info", "/left_camera/camera_info"),
+                    ("visual_slam/pose", "/visual_slam/pose_graph"),
+                ],
+                output="screen",
+            ),
+
+            # Isaac perception fusion
+            Node(
+                package="isaac_humanoid_perception",
+                executable="perception_fusion_node",
+                name="perception_fusion",
+                parameters=[{"use_sim_time": use_sim_time}],
+                remappings=[
+                    ("lidar_points", "/velodyne_points"),
+                    ("camera_detections", "/isaac_detections"),
+                    ("fused_detections", "/fused_detections"),
+                ],
+                output="screen",
+            ),
+        ]
+    )
+
+    return LaunchDescription(
+        declared_arguments +
+        [
+            nav2_bringup_launch,
+            isaac_perception_nodes,
+            isaac_navigation_enhancement,
+        ]
+    )
+```
+
+### Isaac Perception Pipeline Implementation
+
+```python
+# isaac_humanoid_perception/perception_fusion_node.py
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import PointCloud2, Image, CameraInfo, Imu
+from vision_msgs.msg import Detection2DArray, Detection3DArray
+from geometry_msgs.msg import PoseStamped, TransformStamped
+from tf2_ros import TransformListener, Buffer
+from tf2_geometry_msgs import do_transform_pose
+from builtin_interfaces.msg import Time
+import numpy as np
+import open3d as o3d
+from scipy.spatial.transform import Rotation as R
+from collections import deque
+import threading
+import time
+
+class IsaacPerceptionFusion(Node):
+    def __init__(self):
+        super().__init__('isaac_perception_fusion')
+
+        # Initialize TF buffer and listener
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+
+        # Initialize data storage with threading protection
+        self.data_lock = threading.RLock()
+        self.lidar_data = None
+        self.camera_data = None
+        self.camera_info = None
+        self.imu_data = None
+        self.detections_2d = None
+        self.last_process_time = time.time()
+
+        # Create subscribers
+        self.lidar_sub = self.create_subscription(
+            PointCloud2, '/lidar_points', self.lidar_callback, 10
+        )
+        self.camera_sub = self.create_subscription(
+            Image, '/camera/image_rect', self.camera_callback, 10
+        )
+        self.camera_info_sub = self.create_subscription(
+            CameraInfo, '/camera/camera_info', self.camera_info_callback, 10
+        )
+        self.imu_sub = self.create_subscription(
+            Imu, '/imu/data', self.imu_callback, 10
+        )
+        self.detection_sub = self.create_subscription(
+            Detection2DArray, '/isaac_detections', self.detection_callback, 10
+        )
+
+        # Create publishers
+        self.fused_detections_pub = self.create_publisher(
+            Detection3DArray, '/fused_detections', 10
+        )
+        self.semantic_map_pub = self.create_publisher(
+            OccupancyGrid, '/semantic_map', 10
+        )
+        self.traversability_map_pub = self.create_publisher(
+            OccupancyGrid, '/traversability_map', 10
+        )
+
+        # Initialize perception components
+        self.initialize_perception_components()
+
+        # Create processing timer
+        self.process_timer = self.create_timer(0.1, self.process_fusion)
+
+        self.get_logger().info('Isaac Perception Fusion Node initialized')
+
+    def initialize_perception_components(self):
+        """Initialize perception components and parameters"""
+        # Camera parameters
+        self.fx = 500.0  # Focal length x
+        self.fy = 500.0  # Focal length y
+        self.cx = 320.0  # Principal point x
+        self.cy = 240.0  # Principal point y
+
+        # Processing parameters
+        self.processing_rate = 10  # Hz
+        self.max_detection_age = 1.0  # seconds
+        self.fusion_threshold = 0.3  # meters for matching 2D-3D
+
+        # Initialize detection tracking
+        self.tracked_detections = deque(maxlen=100)
+
+    def lidar_callback(self, msg):
+        """Process LiDAR point cloud data"""
+        try:
+            # Convert PointCloud2 to numpy array
+            points = self.pointcloud2_to_array(msg)
+
+            with self.data_lock:
+                self.lidar_data = {
+                    'points': points,
+                    'header': msg.header,
+                    'timestamp': time.time()
+                }
+
+        except Exception as e:
+            self.get_logger().error(f'Error processing LiDAR data: {e}')
+
+    def camera_callback(self, msg):
+        """Process camera image data"""
+        with self.data_lock:
+            self.camera_data = {
+                'image': msg,
+                'timestamp': time.time()
+            }
+
+    def camera_info_callback(self, msg):
+        """Process camera calibration data"""
+        with self.data_lock:
+            self.camera_info = msg
+            # Update internal camera parameters
+            if len(msg.k) >= 9:
+                self.fx = msg.k[0]  # K[0,0]
+                self.fy = msg.k[4]  # K[1,1]
+                self.cx = msg.k[2]  # K[0,2]
+                self.cy = msg.k[5]  # K[1,2]
+
+    def imu_callback(self, msg):
+        """Process IMU data"""
+        with self.data_lock:
+            self.imu_data = {
+                'angular_velocity': [
+                    msg.angular_velocity.x,
+                    msg.angular_velocity.y,
+                    msg.angular_velocity.z
+                ],
+                'linear_acceleration': [
+                    msg.linear_acceleration.x,
+                    msg.linear_acceleration.y,
+                    msg.linear_acceleration.z
+                ],
+                'orientation': [
+                    msg.orientation.x,
+                    msg.orientation.y,
+                    msg.orientation.z,
+                    msg.orientation.w
+                ],
+                'header': msg.header,
+                'timestamp': time.time()
+            }
+
+    def detection_callback(self, msg):
+        """Process 2D object detections"""
+        with self.data_lock:
+            self.detections_2d = {
+                'detections': msg.detections,
+                'header': msg.header,
+                'timestamp': time.time()
+            }
+
+    def process_fusion(self):
+        """Main fusion processing loop"""
+        # Check if we have all required data
+        with self.data_lock:
+            if (self.lidar_data is None or
+                self.detections_2d is None or
+                self.camera_info is None):
+                return
+
+            # Check data freshness
+            current_time = time.time()
+            if (current_time - self.lidar_data['timestamp'] > 0.5 or
+                current_time - self.detections_2d['timestamp'] > 0.5):
+                return  # Data too old
+
+            lidar_points = self.lidar_data['points']
+            detections_2d = self.detections_2d['detections']
+
+        # Perform 2D-3D fusion
+        fused_detections = self.fuse_2d_3d_detections(
+            lidar_points, detections_2d, self.camera_info
+        )
+
+        # Publish fused detections
+        if fused_detections:
+            self.publish_fused_detections(fused_detections)
+
+        # Update semantic map
+        self.update_semantic_map(fused_detections)
+
+        # Update traversability map
+        self.update_traversability_map(lidar_points)
+
+    def fuse_2d_3d_detections(self, lidar_points, detections_2d, camera_info):
+        """Fuse 2D camera detections with 3D LiDAR data"""
+        fused_detections = []
+
+        # Convert lidar points to Open3D point cloud
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(lidar_points[:, :3])
+
+        # Get transform from camera to LiDAR
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                'lidar', 'camera', Time(),
+                timeout=rclpy.duration.Duration(seconds=1.0)
+            )
+        except Exception as e:
+            self.get_logger().warn(f'Could not get transform: {e}')
+            return []
+
+        # Convert transform to matrix
+        t = transform.transform.translation
+        r = transform.transform.rotation
+        transform_matrix = self.tf_to_matrix([t.x, t.y, t.z], [r.x, r.y, r.z, r.w])
+
+        for detection in detections_2d:
+            # Get 2D bounding box
+            bbox_center_x = detection.bbox.center.x
+            bbox_center_y = detection.bbox.center.y
+            bbox_width = detection.bbox.size_x
+            bbox_height = detection.bbox.size_y
+
+            # Project 2D bounding box to 3D frustum
+            points_in_frustum = self.get_points_in_frustum(
+                pcd, bbox_center_x, bbox_center_y, bbox_width, bbox_height,
+                camera_info, transform_matrix
+            )
+
+            if len(points_in_frustum) > 10:  # Minimum points for valid detection
+                # Create 3D bounding box from points
+                bbox_3d = self.create_3d_bbox_from_points(points_in_frustum)
+
+                # Create fused detection
+                fused_detection = self.create_fused_detection(
+                    detection, bbox_3d, points_in_frustum
+                )
+                fused_detections.append(fused_detection)
+
+        return fused_detections
+
+    def get_points_in_frustum(self, pcd, center_x, center_y, width, height,
+                             camera_info, transform_matrix):
+        """Get 3D points that correspond to a 2D bounding box"""
+        # Convert 2D bbox to 4 corners
+        x1 = int(center_x - width / 2)
+        y1 = int(center_y - height / 2)
+        x2 = int(center_x + width / 2)
+        y2 = int(center_y + height / 2)
+
+        # Transform 3D points to camera frame
+        points_cam = self.transform_points(
+            np.asarray(pcd.points), np.linalg.inv(transform_matrix)
+        )
+
+        # Project 3D points to 2D image coordinates
+        points_2d = self.project_3d_to_2d(points_cam, camera_info)
+
+        # Find points within the 2D bounding box
+        mask = (
+            (points_2d[:, 0] >= x1) & (points_2d[:, 0] <= x2) &
+            (points_2d[:, 1] >= y1) & (points_2d[:, 1] <= y2) &
+            (points_cam[:, 2] > 0)  # In front of camera
+        )
+
+        # Return corresponding 3D points
+        return np.asarray(pcd.points)[mask]
+
+    def project_3d_to_2d(self, points_3d, camera_info):
+        """Project 3D points to 2D image coordinates"""
+        # Simple pinhole camera model
+        x = points_3d[:, 0]
+        y = points_3d[:, 1]
+        z = points_3d[:, 2]
+
+        # Project to image plane
+        u = (x * self.fx / z) + self.cx
+        v = (y * self.fy / z) + self.cy
+
+        return np.column_stack([u, v])
+
+    def create_3d_bbox_from_points(self, points):
+        """Create 3D bounding box from point cloud"""
+        if len(points) == 0:
+            return None
+
+        min_pt = np.min(points, axis=0)
+        max_pt = np.max(points, axis=0)
+
+        center = (min_pt + max_pt) / 2
+        size = max_pt - min_pt
+
+        return {
+            'center': center,
+            'size': size,
+            'min_point': min_pt,
+            'max_point': max_pt
+        }
+
+    def create_fused_detection(self, detection_2d, bbox_3d, points):
+        """Create fused 2D-3D detection"""
+        from vision_msgs.msg import Detection3D, Detection3DArray
+        from geometry_msgs.msg import Point, Vector3
+        from std_msgs.msg import Header
+
+        detection_3d = Detection3D()
+        detection_3d.header = detection_2d.header
+
+        # Set 3D position
+        position = Point()
+        position.x = float(bbox_3d['center'][0])
+        position.y = float(bbox_3d['center'][1])
+        position.z = float(bbox_3d['center'][2])
+
+        detection_3d.bbox.center.position = position
+
+        # Set 3D size
+        size = Vector3()
+        size.x = float(bbox_3d['size'][0])
+        size.y = float(bbox_3d['size'][1])
+        size.z = float(bbox_3d['size'][2])
+
+        detection_3d.bbox.size = size
+
+        # Copy results from 2D detection
+        detection_3d.results = detection_2d.results
+
+        return detection_3d
+
+    def publish_fused_detections(self, fused_detections):
+        """Publish fused 3D detections"""
+        from vision_msgs.msg import Detection3DArray
+        from std_msgs.msg import Header
+
+        detection_array = Detection3DArray()
+        detection_array.header.stamp = self.get_clock().now().to_msg()
+        detection_array.header.frame_id = 'map'
+        detection_array.detections = fused_detections
+
+        self.fused_detections_pub.publish(detection_array)
+
+    def update_semantic_map(self, fused_detections):
+        """Update semantic occupancy grid based on detections"""
+        # This would create a semantic map showing object locations
+        # Implementation would depend on specific requirements
+        pass
+
+    def update_traversability_map(self, lidar_points):
+        """Update traversability map based on LiDAR data"""
+        # This would analyze point cloud for traversable areas
+        # Implementation would depend on specific requirements
+        pass
+
+    def pointcloud2_to_array(self, cloud_msg):
+        """Convert PointCloud2 to numpy array"""
+        import sensor_msgs.point_cloud2 as pc2
+        points_list = []
+        for point in pc2.read_points(cloud_msg, skip_nans=True):
+            points_list.append([point[0], point[1], point[2]])
+        return np.array(points_list)
+
+    def tf_to_matrix(self, translation, rotation):
+        """Convert TF transform to 4x4 transformation matrix"""
+        # Create rotation matrix from quaternion
+        r = R.from_quat(rotation)
+        rotation_matrix = r.as_matrix()
+
+        # Create 4x4 transformation matrix
+        transform_matrix = np.eye(4)
+        transform_matrix[:3, :3] = rotation_matrix
+        transform_matrix[:3, 3] = translation
+
+        return transform_matrix
+
+    def transform_points(self, points, transform_matrix):
+        """Transform 3D points using transformation matrix"""
+        # Add homogeneous coordinate
+        points_homo = np.column_stack([points, np.ones(len(points))])
+
+        # Apply transformation
+        points_transformed = (transform_matrix @ points_homo.T).T
+
+        # Remove homogeneous coordinate
+        return points_transformed[:, :3]
+
+def main(args=None):
+    rclpy.init(args=args)
+    perception_fusion = IsaacPerceptionFusion()
+
+    try:
+        rclpy.spin(perception_fusion)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        perception_fusion.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+### Isaac Sim Integration for Safe Testing
+
+```python
+# isaac_sim_integration/sim_real_transfer_node.py
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import JointState
+from geometry_msgs.msg import Twist, PoseStamped
+from std_msgs.msg import Bool, Float64
+from builtin_interfaces.msg import Time
+import numpy as np
+import threading
+import time
+
+class IsaacSimRealTransfer(Node):
+    def __init__(self):
+        super().__init__('isaac_sim_real_transfer')
+
+        # Parameters
+        self.declare_parameter('sim_mode', True)
+        self.declare_parameter('domain_randomization', True)
+        self.declare_parameter('transfer_gain_scaling', 1.0)
+
+        # State variables
+        self.sim_mode = self.get_parameter('sim_mode').value
+        self.domain_randomization = self.get_parameter('domain_randomization').value
+        self.transfer_gain_scaling = self.get_parameter('transfer_gain_scaling').value
+
+        # Data synchronization
+        self.data_lock = threading.RLock()
+        self.sim_joint_states = None
+        self.real_joint_states = None
+        self.sim_commands = None
+
+        # Create subscribers
+        self.sim_joint_sub = self.create_subscription(
+            JointState, '/sim/joint_states', self.sim_joint_callback, 10
+        )
+        self.real_joint_sub = self.create_subscription(
+            JointState, '/real/joint_states', self.real_joint_callback, 10
+        )
+        self.sim_cmd_sub = self.create_subscription(
+            JointState, '/sim/joint_commands', self.sim_cmd_callback, 10
+        )
+
+        # Create publishers
+        self.real_cmd_pub = self.create_publisher(
+            JointState, '/real/joint_commands', 10
+        )
+        self.sim_cmd_pub = self.create_publisher(
+            JointState, '/sim/joint_commands', 10
+        )
+        self.transfer_status_pub = self.create_publisher(
+            Bool, '/transfer/status', 10
+        )
+
+        # Create services for mode switching
+        from rclpy.parameter_service import ParameterService
+        self.parameter_service = ParameterService(self)
+
+        # Create timers
+        self.transfer_timer = self.create_timer(0.05, self.transfer_step)  # 20 Hz
+
+        self.get_logger().info('Isaac Sim-Real Transfer Node initialized')
+
+    def sim_joint_callback(self, msg):
+        """Process simulation joint states"""
+        with self.data_lock:
+            self.sim_joint_states = msg
+
+    def real_joint_callback(self, msg):
+        """Process real robot joint states"""
+        with self.data_lock:
+            self.real_joint_states = msg
+
+    def sim_cmd_callback(self, msg):
+        """Process simulation commands"""
+        with self.data_lock:
+            self.sim_commands = msg
+
+    def transfer_step(self):
+        """Main transfer step - process commands based on mode"""
+        with self.data_lock:
+            if self.sim_commands is not None:
+                if self.sim_mode:
+                    # In sim mode, commands go to sim
+                    self.sim_cmd_pub.publish(self.sim_commands)
+                else:
+                    # In real mode, adapt sim commands for real robot
+                    real_commands = self.adapt_commands_for_real_robot(self.sim_commands)
+                    self.real_cmd_pub.publish(real_commands)
+
+            # Publish transfer status
+            status_msg = Bool()
+            status_msg.data = not self.sim_mode  # True if real mode
+            self.transfer_status_pub.publish(status_msg)
+
+    def adapt_commands_for_real_robot(self, sim_commands):
+        """Adapt simulation commands for real robot execution"""
+        real_commands = JointState()
+        real_commands.header.stamp = self.get_clock().now().to_msg()
+        real_commands.header.frame_id = "real_robot"
+
+        # Copy names
+        real_commands.name = sim_commands.name.copy()
+
+        # Apply domain randomization if enabled
+        if self.domain_randomization:
+            positions = self.add_randomization(sim_commands.position, 'position')
+            velocities = self.add_randomization(sim_commands.velocity, 'velocity')
+            efforts = self.add_randomization(sim_commands.effort, 'effort')
+        else:
+            positions = sim_commands.position.copy()
+            velocities = sim_commands.velocity.copy() if sim_commands.velocity else []
+            efforts = sim_commands.effort.copy() if sim_commands.effort else []
+
+        # Apply gain scaling
+        positions = [pos * self.transfer_gain_scaling for pos in positions]
+        if velocities:
+            velocities = [vel * self.transfer_gain_scaling for vel in velocities]
+        if efforts:
+            efforts = [eff * self.transfer_gain_scaling for eff in efforts]
+
+        real_commands.position = positions
+        real_commands.velocity = velocities
+        real_commands.effort = efforts
+
+        return real_commands
+
+    def add_randomization(self, values, value_type):
+        """Add domain randomization to command values"""
+        if not values:
+            return []
+
+        randomized_values = []
+        for value in values:
+            if value_type == 'position':
+                # Add position-specific randomization
+                noise = np.random.normal(0, 0.01)  # 1cm position noise
+            elif value_type == 'velocity':
+                # Add velocity-specific randomization
+                noise = np.random.normal(0, 0.005)  # 5mm/s velocity noise
+            else:  # effort
+                # Add effort-specific randomization
+                noise = np.random.normal(0, 0.1)  # 0.1 N*m effort noise
+
+            randomized_values.append(value + noise)
+
+        return randomized_values
+
+    def switch_to_real_mode(self):
+        """Switch from simulation to real robot mode"""
+        self.sim_mode = False
+        self.get_logger().info('Switched to real robot mode')
+
+    def switch_to_sim_mode(self):
+        """Switch from real robot to simulation mode"""
+        self.sim_mode = True
+        self.get_logger().info('Switched to simulation mode')
+
+def main(args=None):
+    rclpy.init(args=args)
+    transfer_node = IsaacSimRealTransfer()
+
+    try:
+        rclpy.spin(transfer_node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        transfer_node.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+### Isaac Performance Optimization
+
+```python
+# isaac_optimization/performance_monitor_node.py
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import Float64, String
+from sensor_msgs.msg import Image, PointCloud2
+from builtin_interfaces.msg import Time
+import torch
+import psutil
+import time
+from collections import deque
+import threading
+
+class IsaacPerformanceMonitor(Node):
+    def __init__(self):
+        super().__init__('isaac_performance_monitor')
+
+        # Performance tracking
+        self.gpu_usage_history = deque(maxlen=100)
+        self.cpu_usage_history = deque(maxlen=100)
+        self.memory_usage_history = deque(maxlen=100)
+        self.data_processing_times = deque(maxlen=100)
+
+        # Lock for thread safety
+        self.monitor_lock = threading.Lock()
+
+        # Create subscribers for monitoring
+        self.image_sub = self.create_subscription(
+            Image, '/camera/image_raw', self.image_callback, 1
+        )
+        self.pointcloud_sub = self.create_subscription(
+            PointCloud2, '/lidar_points', self.pointcloud_callback, 1
+        )
+
+        # Create publishers for performance metrics
+        self.gpu_usage_pub = self.create_publisher(Float64, '/performance/gpu_usage', 10)
+        self.cpu_usage_pub = self.create_publisher(Float64, '/performance/cpu_usage', 10)
+        self.memory_usage_pub = self.create_publisher(Float64, '/performance/memory_usage', 10)
+        self.fps_pub = self.create_publisher(Float64, '/performance/fps', 10)
+        self.status_pub = self.create_publisher(String, '/performance/status', 10)
+
+        # Create timer for performance monitoring
+        self.monitor_timer = self.create_timer(1.0, self.monitor_performance)
+
+        # Initialize counters
+        self.frame_count = 0
+        self.frame_count_start_time = time.time()
+
+        self.get_logger().info('Isaac Performance Monitor initialized')
+
+    def image_callback(self, msg):
+        """Monitor image processing performance"""
+        start_time = time.time()
+
+        # Simulate image processing (in real implementation, this would process the image)
+        # For monitoring purposes, we'll just measure the callback time
+        process_time = time.time() - start_time
+
+        with self.monitor_lock:
+            self.data_processing_times.append(process_time)
+            self.frame_count += 1
+
+    def pointcloud_callback(self, msg):
+        """Monitor point cloud processing performance"""
+        start_time = time.time()
+
+        # Simulate point cloud processing
+        process_time = time.time() - start_time
+
+        with self.monitor_lock:
+            self.data_processing_times.append(process_time)
+
+    def monitor_performance(self):
+        """Monitor and publish system performance metrics"""
+        # Get GPU usage (NVIDIA-specific)
+        gpu_usage = self.get_gpu_usage()
+        cpu_usage = psutil.cpu_percent()
+        memory_usage = psutil.virtual_memory().percent
+
+        # Calculate FPS
+        current_time = time.time()
+        time_elapsed = current_time - self.frame_count_start_time
+        if time_elapsed > 0:
+            fps = self.frame_count / time_elapsed
+        else:
+            fps = 0
+
+        # Store metrics
+        with self.monitor_lock:
+            self.gpu_usage_history.append(gpu_usage)
+            self.cpu_usage_history.append(cpu_usage)
+            self.memory_usage_history.append(memory_usage)
+
+            # Reset frame counter every 10 seconds
+            if time_elapsed > 10:
+                self.frame_count = 0
+                self.frame_count_start_time = current_time
+
+        # Publish metrics
+        gpu_msg = Float64()
+        gpu_msg.data = float(gpu_usage)
+        self.gpu_usage_pub.publish(gpu_msg)
+
+        cpu_msg = Float64()
+        cpu_msg.data = float(cpu_usage)
+        self.cpu_usage_pub.publish(cpu_msg)
+
+        memory_msg = Float64()
+        memory_msg.data = float(memory_usage)
+        self.memory_usage_pub.publish(memory_msg)
+
+        fps_msg = Float64()
+        fps_msg.data = float(fps)
+        self.fps_pub.publish(fps_msg)
+
+        # Create status message
+        status_msg = String()
+        status_msg.data = f"GPU: {gpu_usage:.1f}%, CPU: {cpu_usage:.1f}%, FPS: {fps:.1f}"
+        self.status_pub.publish(status_msg)
+
+        # Log performance if thresholds are exceeded
+        if gpu_usage > 90 or cpu_usage > 90:
+            self.get_logger().warn(f'High resource usage - GPU: {gpu_usage:.1f}%, CPU: {cpu_usage:.1f}%')
+
+    def get_gpu_usage(self):
+        """Get GPU usage percentage (NVIDIA-specific)"""
+        try:
+            import pynvml
+            pynvml.nvmlInit()
+            handle = pynvml.nvmlDeviceGetHandleByIndex(0)  # GPU 0
+            util = pynvml.nvmlDeviceGetUtilizationRates(handle)
+            return util.gpu
+        except:
+            # Fallback: estimate based on PyTorch memory usage
+            if torch.cuda.is_available():
+                return torch.cuda.utilization()
+            return 0
+
+    def get_average_processing_time(self):
+        """Get average data processing time"""
+        with self.monitor_lock:
+            if self.data_processing_times:
+                return sum(self.data_processing_times) / len(self.data_processing_times)
+            return 0
+
+def main(args=None):
+    rclpy.init(args=args)
+    monitor = IsaacPerformanceMonitor()
+
+    try:
+        rclpy.spin(monitor)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        monitor.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+### Isaac Troubleshooting Guide
+
+```python
+# isaac_troubleshooting/diagnostic_node.py
+import rclpy
+from rclpy.node import Node
+from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
+from sensor_msgs.msg import Image, PointCloud2
+from std_msgs.msg import Bool, Float64
+import subprocess
+import psutil
+import torch
+import time
+
+class IsaacDiagnosticNode(Node):
+    def __init__(self):
+        super().__init__('isaac_diagnostic_node')
+
+        # Create publishers
+        self.diag_pub = self.create_publisher(DiagnosticArray, '/diagnostics', 10)
+
+        # Create subscribers for system monitoring
+        self.image_sub = self.create_subscription(
+            Image, '/camera/image_raw', self.image_health_check, 10
+        )
+        self.lidar_sub = self.create_subscription(
+            PointCloud2, '/lidar_points', self.lidar_health_check, 10
+        )
+
+        # Health check timer
+        self.health_timer = self.create_timer(5.0, self.run_health_check)
+
+        # System state tracking
+        self.system_state = {
+            'gpu_available': False,
+            'cuda_available': False,
+            'tensorrt_available': False,
+            'last_image_time': 0,
+            'last_lidar_time': 0,
+            'image_frequency_ok': True,
+            'lidar_frequency_ok': True
+        }
+
+        # Initialize system capabilities
+        self.check_system_capabilities()
+
+        self.get_logger().info('Isaac Diagnostic Node initialized')
+
+    def check_system_capabilities(self):
+        """Check system capabilities and availability"""
+        # Check GPU availability
+        try:
+            if torch.cuda.is_available():
+                self.system_state['gpu_available'] = True
+                self.system_state['cuda_available'] = True
+
+                # Check CUDA version compatibility
+                cuda_version = torch.version.cuda
+                self.get_logger().info(f'CUDA version: {cuda_version}')
+
+                # Check TensorRT availability
+                try:
+                    import torch_tensorrt
+                    self.system_state['tensorrt_available'] = True
+                    self.get_logger().info('TensorRT is available')
+                except ImportError:
+                    self.get_logger().warn('TensorRT not available')
+        except Exception as e:
+            self.get_logger().error(f'Error checking GPU capabilities: {e}')
+
+    def image_health_check(self, msg):
+        """Check image system health"""
+        current_time = time.time()
+        self.system_state['last_image_time'] = current_time
+
+    def lidar_health_check(self, msg):
+        """Check LiDAR system health"""
+        current_time = time.time()
+        self.system_state['last_lidar_time'] = current_time
+
+    def run_health_check(self):
+        """Run comprehensive health check"""
+        current_time = time.time()
+
+        # Check data freshness
+        if current_time - self.system_state['last_image_time'] > 5.0:
+            self.system_state['image_frequency_ok'] = False
+        else:
+            self.system_state['image_frequency_ok'] = True
+
+        if current_time - self.system_state['last_lidar_time'] > 5.0:
+            self.system_state['lidar_frequency_ok'] = False
+        else:
+            self.system_state['lidar_frequency_ok'] = True
+
+        # Create diagnostic message
+        diag_array = DiagnosticArray()
+        diag_array.header.stamp = self.get_clock().now().to_msg()
+
+        # System status
+        system_diag = DiagnosticStatus()
+        system_diag.name = 'Isaac System Status'
+        system_diag.hardware_id = 'isaac_system'
+
+        # Overall status
+        if (self.system_state['gpu_available'] and
+            self.system_state['image_frequency_ok'] and
+            self.system_state['lidar_frequency_ok']):
+            system_diag.level = DiagnosticStatus.OK
+            system_diag.message = 'All systems nominal'
+        else:
+            system_diag.level = DiagnosticStatus.WARN
+            system_diag.message = 'Some systems degraded'
+
+        # Add key-value pairs for detailed info
+        system_diag.values.append(KeyValue(key='GPU Available', value=str(self.system_state['gpu_available'])))
+        system_diag.values.append(KeyValue(key='CUDA Available', value=str(self.system_state['cuda_available'])))
+        system_diag.values.append(KeyValue(key='TensorRT Available', value=str(self.system_state['tensorrt_available'])))
+        system_diag.values.append(KeyValue(key='Image Data OK', value=str(self.system_state['image_frequency_ok'])))
+        system_diag.values.append(KeyValue(key='LiDAR Data OK', value=str(self.system_state['lidar_frequency_ok'])))
+
+        diag_array.status.append(system_diag)
+
+        # GPU status
+        gpu_diag = DiagnosticStatus()
+        gpu_diag.name = 'GPU Status'
+        gpu_diag.hardware_id = 'nvidia_gpu'
+
+        if self.system_state['gpu_available']:
+            gpu_diag.level = DiagnosticStatus.OK
+            gpu_diag.message = 'GPU operational'
+
+            # Get GPU details
+            if torch.cuda.is_available():
+                gpu_name = torch.cuda.get_device_name(0)
+                gpu_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)  # GB
+                gpu_diag.values.append(KeyValue(key='GPU Name', value=gpu_name))
+                gpu_diag.values.append(KeyValue(key='GPU Memory (GB)', value=f'{gpu_memory:.2f}'))
+        else:
+            gpu_diag.level = DiagnosticStatus.ERROR
+            gpu_diag.message = 'GPU not available'
+
+        diag_array.status.append(gpu_diag)
+
+        # Publish diagnostics
+        self.diag_pub.publish(diag_array)
+
+    def run_detailed_diagnostic(self):
+        """Run detailed diagnostic procedure"""
+        self.get_logger().info('Running detailed Isaac diagnostic...')
+
+        # Check Isaac-specific components
+        self.check_isaac_components()
+
+        # Check ROS 2 connectivity
+        self.check_ros_connectivity()
+
+        # Check sensor data quality
+        self.check_sensor_quality()
+
+        self.get_logger().info('Detailed diagnostic complete')
+
+    def check_isaac_components(self):
+        """Check Isaac-specific components"""
+        try:
+            # Check Isaac ROS packages
+            result = subprocess.run(['dpkg', '-l', '*isaac-ros*'],
+                                  capture_output=True, text=True)
+            if result.returncode == 0:
+                self.get_logger().info('Isaac ROS packages: Installed')
+            else:
+                self.get_logger().warn('Isaac ROS packages: Not found')
+        except Exception as e:
+            self.get_logger().error(f'Error checking Isaac packages: {e}')
+
+    def check_ros_connectivity(self):
+        """Check ROS 2 connectivity"""
+        # This would check for proper ROS graph connectivity
+        node_names = self.get_node_names()
+        self.get_logger().info(f'Connected nodes: {len(node_names)}')
+
+    def check_sensor_quality(self):
+        """Check sensor data quality"""
+        # This would implement detailed sensor quality checks
+        pass
+
+def main(args=None):
+    rclpy.init(args=args)
+    diagnostic_node = IsaacDiagnosticNode()
+
+    try:
+        rclpy.spin(diagnostic_node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        diagnostic_node.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+### Isaac Deployment Scripts
+
+```bash
+#!/bin/bash
+# deploy_isaac_humanoid.sh - Deployment script for Isaac-based humanoid system
+
+set -e  # Exit on any error
+
+# Configuration
+ROBOT_NAME="${ROBOT_NAME:-humanoid_robot}"
+DEPLOY_DIR="/opt/isaac_humanoid"
+USER_NAME="$(logname)"
+ROS_DISTRO="humble"
+
+echo "Isaac Humanoid Deployment Script"
+echo "=================================="
+
+# Function to check if running as root
+check_root() {
+    if [ "$EUID" -ne 0 ]; then
+        echo "Please run as root (use sudo)"
+        exit 1
+    fi
+}
+
+# Function to install dependencies
+install_dependencies() {
+    echo "Installing system dependencies..."
+
+    # Update package lists
+    apt update
+
+    # Install basic dependencies
+    apt install -y \
+        python3-pip \
+        python3-dev \
+        build-essential \
+        cmake \
+        git \
+        wget \
+        curl \
+        htop \
+        iotop \
+        nvtop \
+        nvidia-driver-535 \
+        nvidia-utils-535 \
+        nvidia-cuda-toolkit \
+        ros-$ROS_DISTRO-navigation2 \
+        ros-$ROS_DISTRO-nav2-bringup \
+        ros-$ROS_DISTRO-robot-localization \
+        ros-$ROS_DISTRO-interactive-markers
+
+    # Install Python dependencies
+    pip3 install \
+        torch==2.0.0 \
+        torchvision==0.15.0 \
+        torchaudio==2.0.0 \
+        open3d \
+        numpy \
+        scipy \
+        matplotlib \
+        psutil \
+        pynvml
+}
+
+# Function to setup NVIDIA environment
+setup_nvidia() {
+    echo "Setting up NVIDIA environment..."
+
+    # Add NVIDIA repositories
+    wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.0-1_all.deb
+    dpkg -i cuda-keyring_1.0-1_all.deb
+    apt-get update
+
+    # Install CUDA and related packages
+    apt install -y \
+        cuda-toolkit-12-0 \
+        libcudnn8 \
+        libcudnn8-dev \
+        libnvinfer8 \
+        libnvinfer-dev \
+        libnvparsers8 \
+        libnvonnxparsers8 \
+        libnvinfer-plugin8
+
+    # Set environment variables
+    echo 'export CUDA_HOME=/usr/local/cuda' >> /home/$USER_NAME/.bashrc
+    echo 'export PATH=$PATH:/usr/local/cuda/bin' >> /home/$USER_NAME/.bashrc
+    echo 'export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/cuda/lib64' >> /home/$USER_NAME/.bashrc
+}
+
+# Function to install Isaac ROS packages
+install_isaac_ros() {
+    echo "Installing Isaac ROS packages..."
+
+    # Add Isaac ROS repository
+    apt update
+    apt install -y nvidia-isaac-ros-repos
+    apt update
+
+    # Install Isaac ROS packages
+    apt install -y \
+        nvidia-isaac-ros-core \
+        nvidia-isaac-ros-cortex \
+        nvidia-isaac-ros-isaac-ros-dev \
+        nvidia-isaac-ros-isaac-ros-common \
+        nvidia-isaac-ros-isaac-ros-apps \
+        nvidia-isaac-ros-isaac-ros-navigation \
+        nvidia-isaac-ros-isaac-ros-perception \
+        nvidia-isaac-ros-isaac-ros-manipulation
+}
+
+# Function to create deployment directory
+setup_deployment_dir() {
+    echo "Setting up deployment directory..."
+
+    # Create deployment directory
+    mkdir -p $DEPLOY_DIR
+    chown $USER_NAME:$USER_NAME $DEPLOY_DIR
+
+    # Create log directory
+    mkdir -p $DEPLOY_DIR/logs
+    chown $USER_NAME:$USER_NAME $DEPLOY_DIR/logs
+}
+
+# Function to setup systemd services
+setup_systemd_services() {
+    echo "Setting up systemd services..."
+
+    # Create navigation service
+    cat > /etc/systemd/system/isaac-navigation.service << EOF
+[Unit]
+Description=Isaac Navigation Service
+After=network.target
+
+[Service]
+Type=simple
+User=$USER_NAME
+Environment="ROS_DOMAIN_ID=0"
+Environment="CUDA_VISIBLE_DEVICES=0"
+ExecStart=/bin/bash -c "source /opt/ros/$ROS_DISTRO/setup.bash && source /home/$USER_NAME/isaac_ws/install/setup.bash && ros2 launch isaac_humanoid_navigation isaac_humanoid_navigation.launch.py"
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # Create perception service
+    cat > /etc/systemd/system/isaac-perception.service << EOF
+[Unit]
+Description=Isaac Perception Service
+After=network.target
+
+[Service]
+Type=simple
+User=$USER_NAME
+Environment="ROS_DOMAIN_ID=0"
+Environment="CUDA_VISIBLE_DEVICES=0"
+ExecStart=/bin/bash -c "source /opt/ros/$ROS_DISTRO/setup.bash && source /home/$USER_NAME/isaac_ws/install/setup.bash && ros2 run isaac_humanoid_perception perception_fusion_node"
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # Reload systemd
+    systemctl daemon-reload
+
+    # Enable services
+    systemctl enable isaac-navigation.service
+    systemctl enable isaac-perception.service
+}
+
+# Function to setup performance tuning
+setup_performance_tuning() {
+    echo "Setting up performance tuning..."
+
+    # Set CPU governor to performance
+    echo 'performance' > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+
+    # Add user to realtime group
+    usermod -a -G realtime $USER_NAME
+
+    # Set realtime priority limits
+    echo "$USER_NAME soft rtprio 99" >> /etc/security/limits.conf
+    echo "$USER_NAME hard rtprio 99" >> /etc/security/limits.conf
+}
+
+# Main deployment process
+main() {
+    echo "Starting Isaac Humanoid deployment..."
+
+    check_root
+    install_dependencies
+    setup_nvidia
+    install_isaac_ros
+    setup_deployment_dir
+    setup_systemd_services
+    setup_performance_tuning
+
+    echo ""
+    echo "Isaac Humanoid deployment completed!"
+    echo ""
+    echo "Next steps:"
+    echo "1. Reboot the system to apply all changes"
+    echo "2. Check service status: systemctl status isaac-navigation"
+    echo "3. Start services: systemctl start isaac-navigation"
+    echo "4. Monitor logs: journalctl -u isaac-navigation -f"
+}
+
+# Run main function if script is executed directly
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
+```
+
+## Summary
+
+This chapter provided practical implementation of Isaac-based systems for humanoid robots, covering:
+
+- Complete navigation stack with Isaac components
+- Real-time perception pipeline with sensor fusion
+- Sim-to-real transfer mechanisms
+- Performance monitoring and optimization
+- Troubleshooting and diagnostic tools
+- Deployment scripts for production systems
+
+The practical examples demonstrate how to build robust, production-ready Isaac applications that can handle the complexities of humanoid robotics while maintaining high performance and reliability.
+
+## Next Steps
+
+- Deploy the navigation system on your humanoid robot
+- Integrate perception fusion with your existing systems
+- Optimize performance based on your specific hardware
+- Implement diagnostic tools for ongoing monitoring
+- Test sim-to-real transfer with your robot

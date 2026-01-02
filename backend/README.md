@@ -1,0 +1,186 @@
+# Docusaurus RAG Vector Ingestion Pipeline
+
+This project implements a vector ingestion pipeline that crawls a Docusaurus website, extracts content, generates semantic embeddings using Cohere, and stores them in Qdrant Cloud for RAG (Retrieval Augmented Generation) applications.
+
+## Features
+
+- Crawls all accessible pages on a Docusaurus website
+- Extracts clean text content, removing navigation and layout elements
+- Chunks text for RAG-optimized retrieval
+- Generates semantic embeddings using Cohere
+- Stores embeddings and metadata in Qdrant Cloud
+- Handles errors gracefully with appropriate logging
+- Environment-based configuration for security
+
+## Prerequisites
+
+- Python 3.11 or higher
+- uv package manager
+- Cohere API key
+- Qdrant Cloud API key and URL
+- Access to the Docusaurus site to be crawled
+
+## Installation
+
+1. Clone the repository:
+```bash
+git clone <repository-url>
+cd <repository-name>
+```
+
+2. Navigate to the backend directory:
+```bash
+cd backend
+```
+
+3. Install dependencies using uv:
+```bash
+uv sync
+```
+
+## Configuration
+
+1. Create a `.env` file based on the example:
+```bash
+cp .env.example .env
+```
+
+2. Edit the `.env` file with your specific configuration:
+```env
+# Your Cohere API key
+COHERE_API_KEY=your_actual_cohere_api_key_here
+
+# Your Qdrant Cloud credentials
+QDRANT_API_KEY=your_actual_qdrant_api_key_here
+QDRANT_URL=your_actual_qdrant_cloud_url_here
+
+# The Docusaurus site URL to crawl
+DOCS_URL=https://your-docusaurus-site.com/
+```
+
+3. To get your required API keys and URLs:
+   - **Cohere API Key**: Sign up at [cohere.com](https://cohere.com) and create an API key in your dashboard
+   - **Qdrant Cloud**: Sign up at [qdrant.tech](https://qdrant.tech) and create a cloud instance to get your URL and API key
+   - **DOCS_URL**: Replace with the URL of your Docusaurus site (default is http://localhost:3000/)
+
+4. Make sure your Docusaurus site is accessible at the specified URL before running the pipeline
+
+## Usage
+
+### Ingestion Pipeline
+
+Run the ingestion pipeline:
+```bash
+cd backend
+python main.py
+```
+
+The pipeline will:
+1. Crawl all accessible URLs on the specified Docusaurus site
+2. Extract clean text content from each page
+3. Chunk the content appropriately for RAG retrieval
+4. Generate semantic embeddings using Cohere
+5. Store the embeddings and metadata in Qdrant Cloud
+
+### Validation Pipeline
+
+Run the validation pipeline to check the retrieval system:
+```bash
+cd backend
+python validation.py
+```
+
+The validation pipeline will:
+1. Connect to the existing Qdrant collection
+2. Execute test queries against the stored embeddings
+3. Validate metadata completeness and integrity
+4. Assess relevance of retrieved results
+5. Generate comprehensive validation report
+
+### Validation Pipeline with Custom Queries
+
+To run validation with custom queries:
+
+```bash
+# You can modify the queries in the validation.py file or create a custom script
+python -c "
+from validation import run_complete_validation_pipeline
+
+queries = [
+    'Your first test query',
+    'Your second test query',
+    'Your third test query'
+]
+
+results = run_complete_validation_pipeline(queries, limit=10)
+print(results['report'])
+"
+```
+
+## Functions in main.py
+
+The pipeline is implemented as a single file with the following key functions:
+
+- `get_all_urls(base_url)`: Discovers all accessible URLs on the Docusaurus site
+- `extract_text_from_url(url)`: Extracts clean text content from a URL
+- `chunk_text(text, chunk_size, overlap)`: Splits text into overlapping chunks
+- `embed(texts)`: Generates Cohere embeddings for texts
+- `create_collection(collection_name)`: Creates or connects to Qdrant collection
+- `save_chunk_to_qdrant(chunk_data, embedding)`: Saves chunk and embedding to Qdrant
+- `main()`: Orchestrates the complete pipeline
+
+## Project Structure
+
+```
+backend/
+├── main.py              # Main pipeline implementation
+├── pyproject.toml       # Project configuration and dependencies
+├── .env                 # Environment variables (gitignored)
+├── .env.example         # Example environment variables file
+└── README.md            # This file
+```
+
+## Environment Variables
+
+- `COHERE_API_KEY`: Your Cohere API key (required)
+- `QDRANT_API_KEY`: Your Qdrant Cloud API key (required)
+- `QDRANT_URL`: Your Qdrant Cloud cluster URL (required)
+- `DOCS_URL`: Base URL of the Docusaurus site to crawl (default: http://localhost:3000/)
+- `CHUNK_SIZE`: Size of text chunks in words (default: 500)
+- `CHUNK_OVERLAP`: Overlap between chunks in words (default: 50)
+- `RATE_LIMIT_DELAY`: Delay between requests in seconds (default: 1)
+
+## Security
+
+- All sensitive information is managed through environment variables
+- The `.env` file is properly gitignored
+- API keys are never hardcoded in the source code
+
+## Troubleshooting
+
+If you encounter issues:
+
+1. Verify that your API keys are valid and have the necessary permissions
+2. Ensure the Docusaurus site is accessible and doesn't require authentication
+3. Check that your Qdrant Cloud instance is properly configured and accessible
+4. Review the logs for specific error messages
+
+## Testing the Setup
+
+To test that your environment is properly configured without running the full pipeline:
+
+1. Make sure you have Python 3.11+ and uv installed
+2. Install dependencies: `uv sync`
+3. Verify environment variables are loaded: `uv run python -c "import os; print('COHERE_API_KEY exists:', bool(os.getenv('COHERE_API_KEY'))); print('QDRANT variables exist:', bool(os.getenv('QDRANT_URL') and os.getenv('QDRANT_API_KEY')))"`
+
+If the environment variables are loaded correctly, you'll see:
+```
+COHERE_API_KEY exists: True
+QDRANT variables exist: True
+```
+
+Note that the script will still fail to connect to external services when using placeholder values, which is expected behavior until you configure real API credentials.
+
+## License
+
+[Add your license information here]

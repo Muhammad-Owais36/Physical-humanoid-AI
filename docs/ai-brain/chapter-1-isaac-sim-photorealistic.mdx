@@ -1,0 +1,910 @@
+---
+sidebar_position: 1
+---
+
+# Chapter 1: Isaac Sim Photorealistic Simulation
+
+## Introduction
+
+NVIDIA Isaac Sim is a comprehensive robotics simulation platform built on NVIDIA Omniverse, designed specifically for developing, testing, and training AI-powered robots. With its photorealistic rendering capabilities, Isaac Sim enables the generation of synthetic data that closely matches real-world conditions, making it an essential tool for the "AI-Robot Brain" module. This chapter explores how to leverage Isaac Sim's photorealistic simulation capabilities for humanoid robotics development.
+
+## Isaac Sim Architecture and Capabilities
+
+### Omniverse Foundation
+
+Isaac Sim is built on NVIDIA Omniverse, providing:
+
+- **USD (Universal Scene Description)**: Advanced scene representation and composition
+- **PhysX Physics Engine**: High-fidelity physics simulation optimized for GPU acceleration
+- **RTX Ray Tracing**: Photorealistic rendering with global illumination
+- **Real-time Collaboration**: Multi-user editing and simulation capabilities
+- **Extensible Framework**: Python API for custom extensions and tools
+
+### Key Features for Humanoid Robotics
+
+- **Photorealistic Rendering**: High-quality graphics for perception training
+- **Synthetic Data Generation**: Large datasets for computer vision and learning
+- **Physics Simulation**: Accurate dynamics for robot control and interaction
+- **Sensor Simulation**: Realistic camera, LiDAR, and IMU simulation
+- **AI Training Environment**: Reinforcement learning and imitation learning support
+
+## Setting Up Isaac Sim for Humanoid Robots
+
+### Installation and Requirements
+
+Isaac Sim requires specific hardware and software requirements:
+
+```bash
+# System requirements
+- NVIDIA GPU with RTX or GTX 1080/2080/Titan V or better
+- CUDA 11.8 or later
+- 16GB+ RAM
+- Windows 10/11 or Ubuntu 20.04/22.04
+
+# Installation via Omniverse Launcher
+# Download from NVIDIA Developer website
+# Install Isaac Sim extension
+```
+
+### Basic Isaac Sim Project Structure
+
+```
+isaac_sim_project/
+├── assets/                 # Robot models, environments, objects
+│   ├── robots/            # Humanoid robot models
+│   ├── environments/      # Scene environments
+│   └── objects/           # Interactive objects
+├── configs/               # Configuration files
+│   ├── robot_configs/     # Robot-specific configs
+│   └── scene_configs/     # Scene-specific configs
+├── scripts/               # Python scripts for automation
+└── synthetic_data/        # Generated training data
+```
+
+## USD Scene Description for Humanoid Robots
+
+### USD File Structure
+
+USD (Universal Scene Description) is the core format for Isaac Sim scenes:
+
+```usd
+# Example humanoid robot USD file
+# humanoid_robot.usd
+
+#usda 1.0
+
+def Xform "World"
+{
+    def Xform "Robot"
+    {
+        # Torso
+        def Capsule "Torso"
+        {
+            float3 xformOp:translate = (0, 0, 0.8)
+            float radius = 0.1
+            float height = 0.6
+            rel material:binding = </Materials/RobotBodyMaterial>
+        }
+
+        # Head
+        def Sphere "Head"
+        {
+            float3 xformOp:translate = (0, 0, 1.1)
+            float radius = 0.12
+            rel material:binding = </Materials/RobotHeadMaterial>
+        }
+
+        # Left Arm
+        def Xform "LeftArm"
+        {
+            float3 xformOp:translate = (0.3, 0, 0.6)
+
+            def Capsule "UpperArm"
+            {
+                float3 xformOp:rotateXYZ = (0, 0, 0)
+                float radius = 0.04
+                float height = 0.3
+            }
+
+            def Capsule "LowerArm"
+            {
+                float3 xformOp:translate = (0, 0, -0.3)
+                float3 xformOp:rotateXYZ = (0, 0, 0)
+                float radius = 0.03
+                float height = 0.25
+            }
+        }
+
+        # Right Arm (similar to left)
+        def Xform "RightArm"
+        {
+            float3 xformOp:translate = (-0.3, 0, 0.6)
+            # ... similar structure
+        }
+
+        # Legs
+        def Xform "LeftLeg"
+        {
+            float3 xformOp:translate = (0.1, 0, 0.2)
+            # ... leg structure
+        }
+
+        def Xform "RightLeg"
+        {
+            float3 xformOp:translate = (-0.1, 0, 0.2)
+            # ... leg structure
+        }
+    }
+}
+```
+
+### Material Definitions
+
+Creating realistic materials for photorealistic rendering:
+
+```usd
+# Materials.usd
+#usda 1.0
+
+def Material "RobotBodyMaterial"
+{
+    def Shader "PreviewSurface"
+    {
+        uniform token info:id = "UsdPreviewSurface"
+        float3 inputs:diffuseColor = (0.7, 0.7, 0.7)
+        float inputs:metallic = 0.1
+        float inputs:roughness = 0.4
+        float inputs:clearcoat = 0.0
+        float inputs:clearcoatRoughness = 0.01
+        float inputs:opacity = 1.0
+        float inputs:ior = 1.5
+        float inputs:specularColor = (0.1, 0.1, 0.1)
+    }
+
+    rel surface:shader = </Materials/RobotBodyMaterial/PreviewSurface>
+}
+
+def Material "RobotHeadMaterial"
+{
+    def Shader "PreviewSurface"
+    {
+        uniform token info:id = "UsdPreviewSurface"
+        float3 inputs:diffuseColor = (0.9, 0.9, 0.9)
+        float inputs:metallic = 0.2
+        float inputs:roughness = 0.3
+    }
+
+    rel surface:shader = </Materials/RobotHeadMaterial/PreviewSurface>
+}
+```
+
+## Photorealistic Environment Creation
+
+### Creating Diverse Environments
+
+Isaac Sim excels at creating photorealistic environments for synthetic data generation:
+
+```python
+# Python script to create photorealistic environments
+import omni
+from pxr import UsdGeom, Sdf, Gf
+import numpy as np
+
+class PhotorealisticEnvironment:
+    def __init__(self):
+        self.stage = omni.usd.get_context().get_stage()
+
+    def create_indoor_environment(self, name, room_size=(10, 10, 3)):
+        """Create a photorealistic indoor environment"""
+        # Create room
+        room_path = Sdf.Path(f"/World/{name}")
+        room_xform = UsdGeom.Xform.Define(self.stage, room_path)
+
+        # Create walls
+        self._create_walls(room_path, room_size)
+
+        # Add realistic lighting
+        self._add_lighting(room_path)
+
+        # Add furniture and objects
+        self._add_furniture(room_path)
+
+        # Add realistic materials
+        self._add_realistic_materials(room_path)
+
+    def _create_walls(self, parent_path, room_size):
+        """Create walls with realistic materials"""
+        width, length, height = room_size
+
+        # Floor
+        floor_path = parent_path.AppendChild("Floor")
+        floor = UsdGeom.Mesh.Define(self.stage, floor_path)
+        # Configure floor mesh with realistic material
+
+        # Walls
+        wall_configs = [
+            {"name": "NorthWall", "size": (width, 0.2, height), "pos": (0, length/2, height/2)},
+            {"name": "SouthWall", "size": (width, 0.2, height), "pos": (0, -length/2, height/2)},
+            {"name": "EastWall", "size": (0.2, length, height), "pos": (width/2, 0, height/2)},
+            {"name": "WestWall", "size": (0.2, length, height), "pos": (-width/2, 0, height/2)},
+        ]
+
+        for wall_config in wall_configs:
+            wall_path = parent_path.AppendChild(wall_config["name"])
+            wall = UsdGeom.Cube.Define(self.stage, wall_path)
+            wall.GetSizeAttr().Set(1.0)
+            # Apply realistic wall materials
+
+    def _add_lighting(self, parent_path):
+        """Add realistic lighting to the environment"""
+        # Add dome light for global illumination
+        dome_light_path = parent_path.AppendChild("DomeLight")
+        dome_light = UsdGeom.Sphere.Define(self.stage, dome_light_path)
+        # Configure dome light for realistic illumination
+
+        # Add area lights for specific illumination
+        area_light_path = parent_path.AppendChild("AreaLight")
+        area_light = UsdGeom.Disk.Define(self.stage, area_light_path)
+        # Configure area light properties
+
+    def _add_furniture(self, parent_path):
+        """Add realistic furniture and objects"""
+        # Add tables, chairs, objects with realistic physics properties
+        pass
+
+    def _add_realistic_materials(self, parent_path):
+        """Apply realistic materials to surfaces"""
+        # Apply materials like wood, metal, fabric, etc.
+        pass
+
+# Usage
+env = PhotorealisticEnvironment()
+env.create_indoor_environment("LivingRoom", room_size=(8, 6, 3))
+```
+
+## Synthetic Data Generation
+
+### Camera Simulation and Data Capture
+
+Generating synthetic datasets for AI training:
+
+```python
+import omni
+import carb
+from omni.isaac.synthetic_utils import SyntheticDataHelper
+import numpy as np
+import cv2
+
+class SyntheticDataGenerator:
+    def __init__(self, robot_name, camera_name):
+        self.robot_name = robot_name
+        self.camera_name = camera_name
+        self.sd_helper = SyntheticDataHelper([camera_name])
+
+    def generate_rgb_dataset(self, num_samples=1000):
+        """Generate RGB image dataset"""
+        rgb_data_list = []
+
+        for i in range(num_samples):
+            # Move robot to random pose
+            self._move_robot_random_pose()
+
+            # Capture RGB image
+            rgb_data = self.sd_helper.get_rgb_data(self.camera_name)
+            rgb_image = self.sd_helper.get_rgb(self.camera_name)
+
+            # Save image
+            image_path = f"synthetic_data/rgb/image_{i:06d}.png"
+            cv2.imwrite(image_path, cv2.cvtColor(rgb_image, cv2.COLOR_RGB2BGR))
+
+            # Save metadata
+            metadata = {
+                "image_path": image_path,
+                "robot_pose": self._get_robot_pose(),
+                "camera_pose": self._get_camera_pose(),
+                "timestamp": carb.tokens.get_time()
+            }
+
+            rgb_data_list.append(metadata)
+
+        return rgb_data_list
+
+    def generate_depth_dataset(self, num_samples=1000):
+        """Generate depth image dataset"""
+        depth_data_list = []
+
+        for i in range(num_samples):
+            # Move robot to random pose
+            self._move_robot_random_pose()
+
+            # Capture depth image
+            depth_data = self.sd_helper.get_depth_data(self.camera_name)
+            depth_image = self.sd_helper.get_depth(self.camera_name)
+
+            # Save depth image
+            depth_path = f"synthetic_data/depth/depth_{i:06d}.png"
+            cv2.imwrite(depth_path, depth_image)
+
+            # Save metadata
+            metadata = {
+                "depth_path": depth_path,
+                "robot_pose": self._get_robot_pose(),
+                "camera_pose": self._get_camera_pose(),
+                "timestamp": carb.tokens.get_time()
+            }
+
+            depth_data_list.append(metadata)
+
+        return depth_data_list
+
+    def generate_segmentation_dataset(self, num_samples=1000):
+        """Generate semantic segmentation dataset"""
+        seg_data_list = []
+
+        for i in range(num_samples):
+            # Move robot to random pose
+            self._move_robot_random_pose()
+
+            # Capture segmentation image
+            seg_data = self.sd_helper.get_semantic_segmentation_data(self.camera_name)
+            seg_image = self.sd_helper.get_semantic_segmentation(self.camera_name)
+
+            # Save segmentation image
+            seg_path = f"synthetic_data/segmentation/seg_{i:06d}.png"
+            cv2.imwrite(seg_path, seg_image)
+
+            # Save metadata
+            metadata = {
+                "seg_path": seg_path,
+                "robot_pose": self._get_robot_pose(),
+                "camera_pose": self._get_camera_pose(),
+                "timestamp": carb.tokens.get_time()
+            }
+
+            seg_data_list.append(metadata)
+
+        return seg_data_list
+
+    def _move_robot_random_pose(self):
+        """Move robot to a random pose for data diversity"""
+        # Implement random pose generation
+        # This could involve random joint positions, positions, or orientations
+        pass
+
+    def _get_robot_pose(self):
+        """Get current robot pose"""
+        # Return robot pose information
+        pass
+
+    def _get_camera_pose(self):
+        """Get current camera pose"""
+        # Return camera pose information
+        pass
+```
+
+### Domain Randomization
+
+Implementing domain randomization for robust AI training:
+
+```python
+import random
+import numpy as np
+
+class DomainRandomizer:
+    def __init__(self):
+        self.lighting_params = {
+            "intensity_range": (100, 1000),
+            "color_temperature_range": (3000, 8000),
+            "position_variance": (1, 1, 1)
+        }
+
+        self.material_params = {
+            "roughness_range": (0.1, 0.9),
+            "metallic_range": (0.0, 0.5),
+            "albedo_variance": (0.1, 0.1, 0.1)
+        }
+
+        self.camera_params = {
+            "fov_range": (30, 90),
+            "position_variance": (0.1, 0.1, 0.1),
+            "rotation_variance": (5, 5, 5)
+        }
+
+    def randomize_lighting(self):
+        """Randomize lighting conditions"""
+        intensity = random.uniform(*self.lighting_params["intensity_range"])
+        color_temp = random.uniform(*self.lighting_params["color_temperature_range"])
+        position_offset = [
+            random.uniform(-v, v) for v in self.lighting_params["position_variance"]
+        ]
+
+        return {
+            "intensity": intensity,
+            "color_temperature": color_temp,
+            "position_offset": position_offset
+        }
+
+    def randomize_materials(self):
+        """Randomize material properties"""
+        roughness = random.uniform(*self.material_params["roughness_range"])
+        metallic = random.uniform(*self.material_params["metallic_range"])
+        albedo_offset = [
+            random.uniform(-v, v) for v in self.material_params["albedo_variance"]
+        ]
+
+        return {
+            "roughness": roughness,
+            "metallic": metallic,
+            "albedo_offset": albedo_offset
+        }
+
+    def randomize_camera(self):
+        """Randomize camera parameters"""
+        fov = random.uniform(*self.camera_params["fov_range"])
+        position_offset = [
+            random.uniform(-v, v) for v in self.camera_params["position_variance"]
+        ]
+        rotation_offset = [
+            random.uniform(-v, v) for v in self.camera_params["rotation_variance"]
+        ]
+
+        return {
+            "fov": fov,
+            "position_offset": position_offset,
+            "rotation_offset": rotation_offset
+        }
+
+    def apply_randomization(self):
+        """Apply all randomizations to the scene"""
+        lighting_changes = self.randomize_lighting()
+        material_changes = self.randomize_materials()
+        camera_changes = self.randomize_camera()
+
+        # Apply changes to Isaac Sim scene
+        self._apply_lighting_changes(lighting_changes)
+        self._apply_material_changes(material_changes)
+        self._apply_camera_changes(camera_changes)
+
+    def _apply_lighting_changes(self, changes):
+        """Apply lighting changes to the scene"""
+        # Implementation to modify scene lighting
+        pass
+
+    def _apply_material_changes(self, changes):
+        """Apply material changes to the scene"""
+        # Implementation to modify material properties
+        pass
+
+    def _apply_camera_changes(self, changes):
+        """Apply camera changes to the scene"""
+        # Implementation to modify camera properties
+        pass
+```
+
+## Physics Simulation for Humanoid Robots
+
+### Articulated Robot Simulation
+
+Simulating complex humanoid robots with accurate physics:
+
+```python
+import omni
+from omni.isaac.core.utils.stage import add_reference_to_stage
+from omni.isaac.core.utils.prims import get_prim_at_path
+from omni.isaac.core.articulations import Articulation
+from omni.isaac.core.utils.nucleus import get_assets_root_path
+
+class HumanoidPhysicsSimulator:
+    def __init__(self, robot_path):
+        self.robot_path = robot_path
+        self.articulation = None
+
+    def load_humanoid_robot(self):
+        """Load humanoid robot with physics properties"""
+        # Add robot to stage
+        add_reference_to_stage(
+            usd_path=self.robot_path,
+            prim_path="/World/HumanoidRobot"
+        )
+
+        # Create articulation
+        self.articulation = Articulation(prim_path="/World/HumanoidRobot")
+
+        # Initialize physics properties
+        self._setup_physics_properties()
+
+    def _setup_physics_properties(self):
+        """Setup physics properties for humanoid joints"""
+        # Get joint information
+        joint_names = self.articulation.dof_names
+
+        # Configure joint properties for each joint
+        for i, joint_name in enumerate(joint_names):
+            # Set joint limits
+            self.articulation.set_joint_limits(
+                joint_ids=[i],
+                lower_limited=True,
+                lower=-2.0,
+                upper_limited=True,
+                upper=2.0
+            )
+
+            # Set joint stiffness and damping
+            self.articulation.set_drive_property(
+                joint_ids=[i],
+                stiffness=1000,
+                damping=100,
+                drive_type="position"
+            )
+
+    def apply_control_commands(self, joint_positions, joint_velocities=None):
+        """Apply control commands to humanoid robot"""
+        if joint_velocities is None:
+            # Position control
+            self.articulation.set_joint_position_targets(joint_positions)
+        else:
+            # Position and velocity control
+            self.articulation.set_joint_position_targets(joint_positions)
+            self.articulation.set_joint_velocity_targets(joint_velocities)
+
+    def get_robot_state(self):
+        """Get current robot state"""
+        joint_positions = self.articulation.get_joint_positions()
+        joint_velocities = self.articulation.get_joint_velocities()
+        root_pose = self.articulation.get_world_pose()
+        root_velocity = self.articulation.get_velocities()
+
+        return {
+            "joint_positions": joint_positions,
+            "joint_velocities": joint_velocities,
+            "root_pose": root_pose,
+            "root_velocity": root_velocity
+        }
+
+    def enable_gravity(self, enabled=True):
+        """Enable or disable gravity for the robot"""
+        self.articulation.enable_gravity(enabled)
+
+    def reset_robot(self, position=None, orientation=None):
+        """Reset robot to initial position"""
+        if position is not None:
+            self.articulation.set_world_pose(position=position, orientation=orientation)
+
+        # Reset joint positions to zero
+        zero_positions = [0.0] * len(self.articulation.dof_names)
+        self.articulation.set_joint_positions(zero_positions)
+```
+
+## AI Training Integration
+
+### Reinforcement Learning Environment
+
+Creating RL environments for humanoid robot training:
+
+```python
+import gym
+from gym import spaces
+import numpy as np
+import torch
+
+class IsaacHumanoidEnv(gym.Env):
+    def __init__(self, robot_name, max_episode_length=1000):
+        super().__init__()
+
+        self.robot_name = robot_name
+        self.max_episode_length = max_episode_length
+        self.current_step = 0
+
+        # Define action and observation spaces
+        self.action_space = spaces.Box(
+            low=-1.0, high=1.0, shape=(18,), dtype=np.float32  # 18 DoF for humanoid
+        )
+
+        # Observation space: joint positions, velocities, IMU data, etc.
+        obs_dim = 18 * 2 + 6 + 3 + 3  # 18 pos + 18 vel + 6 imu + 3 root vel + 3 root rot vel
+        self.observation_space = spaces.Box(
+            low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32
+        )
+
+        # Initialize Isaac Sim
+        self._initialize_isaac()
+
+    def _initialize_isaac(self):
+        """Initialize Isaac Sim environment"""
+        # Load robot and setup physics
+        self.physics_sim = HumanoidPhysicsSimulator(f"/Isaac/Robots/{self.robot_name}.usd")
+        self.physics_sim.load_humanoid_robot()
+
+        # Setup sensors
+        self.imu_data = None
+
+    def reset(self):
+        """Reset the environment"""
+        self.current_step = 0
+
+        # Reset robot position
+        self.physics_sim.reset_robot(
+            position=[0, 0, 1.0],
+            orientation=[1, 0, 0, 0]
+        )
+
+        # Return initial observation
+        return self._get_observation()
+
+    def step(self, action):
+        """Execute one step in the environment"""
+        # Apply action to robot
+        joint_targets = action * 0.5  # Scale action for safety
+        self.physics_sim.apply_control_commands(joint_targets)
+
+        # Step physics simulation
+        # In Isaac Sim, this is typically handled by the physics context
+
+        # Get observation
+        obs = self._get_observation()
+
+        # Calculate reward
+        reward = self._calculate_reward()
+
+        # Check if episode is done
+        done = self.current_step >= self.max_episode_length
+        self.current_step += 1
+
+        # Additional info
+        info = {}
+
+        return obs, reward, done, info
+
+    def _get_observation(self):
+        """Get current observation from the environment"""
+        robot_state = self.physics_sim.get_robot_state()
+
+        # Combine different state components
+        joint_positions = robot_state["joint_positions"]
+        joint_velocities = robot_state["joint_velocities"]
+
+        # IMU-like data (simplified)
+        imu_data = self._get_imu_data()
+
+        # Root velocity (simplified)
+        root_velocity = robot_state["root_velocity"]
+
+        # Concatenate all observations
+        observation = np.concatenate([
+            joint_positions,
+            joint_velocities,
+            imu_data,
+            root_velocity[:3],    # Linear velocity
+            root_velocity[3:6]    # Angular velocity
+        ])
+
+        return observation
+
+    def _get_imu_data(self):
+        """Get IMU-like data from simulation"""
+        # Simplified IMU data (in real implementation, this would come from IMU sensor)
+        return np.array([0.0, 0.0, 9.81, 0.0, 0.0, 0.0])  # Accel + Gyro (simplified)
+
+    def _calculate_reward(self):
+        """Calculate reward for current state"""
+        # Simplified reward function
+        # In real implementation, this would be more sophisticated
+        robot_state = self.physics_sim.get_robot_state()
+
+        # Encourage upright posture
+        root_pose = robot_state["root_pose"]
+        upright_reward = max(0, root_pose[2] - 0.8)  # Height above 0.8m
+
+        # Penalize large joint velocities
+        joint_velocities = robot_state["joint_velocities"]
+        velocity_penalty = -0.01 * np.sum(np.square(joint_velocities))
+
+        # Encourage forward movement
+        root_velocity = robot_state["root_velocity"]
+        forward_reward = max(0, root_velocity[0])  # Moving forward
+
+        total_reward = upright_reward + velocity_penalty + forward_reward
+        return total_reward
+```
+
+## Performance Optimization
+
+### Multi-GPU and Distributed Training
+
+Optimizing Isaac Sim for large-scale training:
+
+```python
+import multiprocessing
+import concurrent.futures
+from typing import List, Dict
+
+class DistributedTrainingManager:
+    def __init__(self, num_envs=16, num_processes=4):
+        self.num_envs = num_envs
+        self.num_processes = num_processes
+        self.envs_per_process = num_envs // num_processes
+
+    def create_training_envs(self) -> List[IsaacHumanoidEnv]:
+        """Create multiple training environments"""
+        envs = []
+        for i in range(self.num_envs):
+            env = IsaacHumanoidEnv(
+                robot_name="HumanoidRobot",
+                max_episode_length=1000
+            )
+            envs.append(env)
+        return envs
+
+    def parallel_training_step(self, envs: List[IsaacHumanoidEnv], actions: List[np.ndarray]):
+        """Execute parallel training steps across environments"""
+        results = []
+
+        # Split environments and actions among processes
+        chunk_size = len(envs) // self.num_processes
+        futures = []
+
+        with concurrent.futures.ProcessPoolExecutor(max_workers=self.num_processes) as executor:
+            for i in range(self.num_processes):
+                start_idx = i * chunk_size
+                end_idx = start_idx + chunk_size if i < self.num_processes - 1 else len(envs)
+
+                env_chunk = envs[start_idx:end_idx]
+                action_chunk = actions[start_idx:end_idx]
+
+                future = executor.submit(self._execute_env_chunk, env_chunk, action_chunk)
+                futures.append(future)
+
+            for future in concurrent.futures.as_completed(futures):
+                chunk_results = future.result()
+                results.extend(chunk_results)
+
+        return results
+
+    def _execute_env_chunk(self, envs: List[IsaacHumanoidEnv], actions: List[np.ndarray]):
+        """Execute a chunk of environments in parallel"""
+        chunk_results = []
+        for env, action in zip(envs, actions):
+            obs, reward, done, info = env.step(action)
+            chunk_results.append((obs, reward, done, info))
+        return chunk_results
+
+    def batch_data_collection(self, envs: List[IsaacHumanoidEnv], num_batches: int):
+        """Collect batch data for training"""
+        all_transitions = []
+
+        for batch_idx in range(num_batches):
+            batch_transitions = []
+
+            for env in envs:
+                # Get random action for demonstration
+                action = np.random.uniform(-1, 1, size=env.action_space.shape)
+
+                obs, reward, done, info = env.step(action)
+
+                transition = {
+                    "observation": obs,
+                    "action": action,
+                    "reward": reward,
+                    "done": done,
+                    "info": info
+                }
+
+                batch_transitions.append(transition)
+
+                if done:
+                    env.reset()
+
+            all_transitions.extend(batch_transitions)
+
+        return all_transitions
+```
+
+## Integration with NVIDIA Tools
+
+### Isaac ROS Integration
+
+Connecting Isaac Sim with Isaac ROS for perception and control:
+
+```python
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image, CameraInfo
+from geometry_msgs.msg import Twist
+from builtin_interfaces.msg import Time
+
+class IsaacROSBridge(Node):
+    def __init__(self):
+        super().__init__('isaac_ros_bridge')
+
+        # Publishers for Isaac Sim sensors
+        self.rgb_publisher = self.create_publisher(Image, '/camera/rgb/image_raw', 10)
+        self.depth_publisher = self.create_publisher(Image, '/camera/depth/image_raw', 10)
+        self.camera_info_publisher = self.create_publisher(CameraInfo, '/camera/rgb/camera_info', 10)
+
+        # Subscribers for robot control
+        self.cmd_vel_subscriber = self.create_subscription(
+            Twist,
+            '/cmd_vel',
+            self.cmd_vel_callback,
+            10
+        )
+
+        # Timer for publishing sensor data
+        self.sensor_timer = self.create_timer(0.1, self.publish_sensor_data)
+
+        # Isaac Sim integration
+        self.isaac_sim_interface = self._initialize_isaac_interface()
+
+    def _initialize_isaac_interface(self):
+        """Initialize interface with Isaac Sim"""
+        # This would connect to Isaac Sim's ROS bridge
+        pass
+
+    def publish_sensor_data(self):
+        """Publish sensor data from Isaac Sim"""
+        # Get RGB image from Isaac Sim
+        rgb_image = self.isaac_sim_interface.get_rgb_image()
+        if rgb_image is not None:
+            ros_image = self._convert_to_ros_image(rgb_image, 'rgb8')
+            self.rgb_publisher.publish(ros_image)
+
+        # Get depth image from Isaac Sim
+        depth_image = self.isaac_sim_interface.get_depth_image()
+        if depth_image is not None:
+            ros_depth = self._convert_to_ros_image(depth_image, '32FC1')
+            self.depth_publisher.publish(ros_depth)
+
+        # Publish camera info
+        camera_info = self._get_camera_info()
+        self.camera_info_publisher.publish(camera_info)
+
+    def cmd_vel_callback(self, msg):
+        """Handle velocity commands from ROS"""
+        linear_vel = [msg.linear.x, msg.linear.y, msg.linear.z]
+        angular_vel = [msg.angular.x, msg.angular.y, msg.angular.z]
+
+        # Send command to Isaac Sim robot
+        self.isaac_sim_interface.send_velocity_command(linear_vel, angular_vel)
+
+    def _convert_to_ros_image(self, image_data, encoding):
+        """Convert Isaac Sim image to ROS Image message"""
+        ros_image = Image()
+        ros_image.header.stamp = self.get_clock().now().to_msg()
+        ros_image.header.frame_id = 'camera_frame'
+        ros_image.height = image_data.shape[0]
+        ros_image.width = image_data.shape[1]
+        ros_image.encoding = encoding
+        ros_image.is_bigendian = False
+        ros_image.step = ros_image.width * len(encoding) // 8
+        ros_image.data = image_data.flatten().tobytes()
+
+        return ros_image
+
+    def _get_camera_info(self):
+        """Get camera info for the simulated camera"""
+        camera_info = CameraInfo()
+        camera_info.header.frame_id = 'camera_frame'
+        camera_info.height = 480
+        camera_info.width = 640
+        camera_info.distortion_model = 'plumb_bob'
+
+        # Example camera matrix values
+        camera_info.k = [525.0, 0.0, 320.0,  # fx, 0, cx
+                         0.0, 525.0, 240.0,  # 0, fy, cy
+                         0.0, 0.0, 1.0]      # 0, 0, 1
+
+        return camera_info
+```
+
+## Summary
+
+Isaac Sim provides powerful photorealistic simulation capabilities essential for developing the AI-Robot Brain in humanoid robotics. By leveraging its USD-based scene description, advanced rendering, and physics simulation, developers can create synthetic datasets and training environments that bridge the reality gap between simulation and real-world deployment.
+
+The platform's integration with NVIDIA's ecosystem, including CUDA acceleration, RTX rendering, and Isaac ROS, makes it an ideal tool for developing perception, navigation, and control systems for humanoid robots. Through domain randomization and synthetic data generation, Isaac Sim enables the creation of robust AI systems that can handle the complexities of the real world.
+
+## References
+
+- NVIDIA Isaac Sim Documentation: https://docs.omniverse.nvidia.com/isaacsim/
+- USD Documentation: https://graphics.pixar.com/usd/
+- Isaac ROS: https://github.com/NVIDIA-ISAAC-ROS
+- Omniverse: https://www.nvidia.com/en-us/omniverse/

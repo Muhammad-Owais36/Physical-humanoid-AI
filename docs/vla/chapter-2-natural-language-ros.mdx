@@ -1,0 +1,1631 @@
+---
+sidebar_position: 2
+---
+
+# Chapter 2: Translating Natural Language into ROS 2 Action Sequences
+
+## Introduction
+
+The translation of natural language into executable ROS 2 action sequences represents a critical component of the Vision-Language-Action (VLA) paradigm for humanoid robots. This translation process involves converting human-understandable commands into structured robotic actions that can be executed by the ROS 2 ecosystem. The challenge lies in bridging the gap between the ambiguity and richness of natural language and the precise, structured commands required by robotic systems.
+
+This chapter explores the architecture, implementation, and optimization of natural language processing systems that generate ROS 2 action sequences, enabling humanoid robots to understand and execute complex multi-step tasks based on verbal instructions.
+
+## Natural Language Understanding Architecture
+
+### Language Model Integration
+
+The foundation of natural language to ROS 2 action translation relies on sophisticated language models that can understand context, intent, and entities within human commands:
+
+```python
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+from action_msgs.msg import GoalStatus
+from geometry_msgs.msg import Pose, Point
+from sensor_msgs.msg import JointState
+import json
+import openai
+from typing import Dict, List, Any, Optional
+from dataclasses import dataclass
+from enum import Enum
+
+class ActionType(Enum):
+    """Enumeration of supported action types"""
+    NAVIGATION = "navigation"
+    MANIPULATION = "manipulation"
+    PERCEPTION = "perception"
+    COMMUNICATION = "communication"
+    TRAJECTORY = "trajectory"
+    SERVICE = "service"
+
+@dataclass
+class ParsedCommand:
+    """Represents a parsed natural language command"""
+    action_type: ActionType
+    parameters: Dict[str, Any]
+    confidence: float
+    dependencies: List[str]
+
+class NaturalLanguageProcessor(Node):
+    def __init__(self):
+        super().__init__('natural_language_processor')
+
+        # Initialize language model client
+        # In practice, you might use OpenAI API, HuggingFace models, or custom models
+        self.language_model = self.initialize_language_model()
+
+        # Subscribers
+        self.command_sub = self.create_subscription(
+            String,
+            '/natural_language_commands',
+            self.command_callback,
+            10
+        )
+
+        # Publishers
+        self.action_sequence_pub = self.create_publisher(
+            String,
+            '/action_sequences',
+            10
+        )
+
+        self.feedback_pub = self.create_publisher(
+            String,
+            '/nl_feedback',
+            10
+        )
+
+        # Action sequence storage
+        self.action_sequences = {}
+        self.sequence_counter = 0
+
+        # ROS 2 action mappings
+        self.action_mappings = {
+            "navigation": {
+                "move_to": "/navigate_to_pose",
+                "explore": "/explore",
+                "follow": "/follow_waypoints"
+            },
+            "manipulation": {
+                "pick_up": "/pick_place",
+                "place": "/pick_place",
+                "grasp": "/gripper_command"
+            },
+            "perception": {
+                "detect": "/detect_objects",
+                "recognize": "/recognize_objects",
+                "classify": "/classify_scene"
+            }
+        }
+
+    def initialize_language_model(self):
+        """Initialize the language model for command parsing"""
+        # This could be an OpenAI API client, a local model, or a custom NLP pipeline
+        # For demonstration, we'll create a mock implementation
+        class MockLanguageModel:
+            def process_command(self, command: str) -> List[ParsedCommand]:
+                return self.mock_parse_command(command)
+
+            def mock_parse_command(self, command: str) -> List[ParsedCommand]:
+                """Mock implementation of command parsing"""
+                # This would be replaced with actual NLP processing
+                import re
+
+                # Simple rule-based parsing for demonstration
+                commands = []
+
+                if "go to" in command.lower() or "move to" in command.lower():
+                    # Extract location
+                    location_match = re.search(r'(kitchen|living room|bedroom|office|dining room)', command.lower())
+                    if location_match:
+                        commands.append(ParsedCommand(
+                            action_type=ActionType.NAVIGATION,
+                            parameters={
+                                "target_location": location_match.group(1),
+                                "pose": self.get_location_pose(location_match.group(1))
+                            },
+                            confidence=0.9,
+                            dependencies=[]
+                        ))
+
+                if "pick up" in command.lower() or "grab" in command.lower():
+                    # Extract object
+                    object_match = re.search(r'pick up ([a-zA-Z\s]+)|grab ([a-zA-Z\s]+)', command.lower())
+                    obj = object_match.group(1) or object_match.group(2)
+                    if obj:
+                        commands.append(ParsedCommand(
+                            action_type=ActionType.MANIPULATION,
+                            parameters={
+                                "action": "pick_up",
+                                "target_object": obj.strip()
+                            },
+                            confidence=0.85,
+                            dependencies=["navigation"]  # Need to navigate to object first
+                        ))
+
+                if "find" in command.lower() or "locate" in command.lower():
+                    # Extract object to find
+                    object_match = re.search(r'find ([a-zA-Z\s]+)|locate ([a-zA-Z\s]+)', command.lower())
+                    obj = object_match.group(1) or object_match.group(2)
+                    if obj:
+                        commands.append(ParsedCommand(
+                            action_type=ActionType.PERCEPTION,
+                            parameters={
+                                "action": "detect",
+                                "target_object": obj.strip()
+                            },
+                            confidence=0.8,
+                            dependencies=[]
+                        ))
+
+                return commands
+
+            def get_location_pose(self, location: str) -> Dict[str, float]:
+                """Get predefined pose for known locations"""
+                locations = {
+                    "kitchen": {"x": 1.0, "y": 2.0, "z": 0.0},
+                    "living room": {"x": 3.0, "y": 1.0, "z": 0.0},
+                    "bedroom": {"x": 5.0, "y": 3.0, "z": 0.0},
+                    "office": {"x": 2.0, "y": 4.0, "z": 0.0},
+                    "dining room": {"x": 4.0, "y": 2.0, "z": 0.0}
+                }
+                return locations.get(location, {"x": 0.0, "y": 0.0, "z": 0.0})
+
+        return MockLanguageModel()
+
+    def command_callback(self, msg):
+        """Process incoming natural language command"""
+        command_text = msg.data
+        self.get_logger().info(f"Processing command: {command_text}")
+
+        # Parse the command using the language model
+        parsed_commands = self.language_model.process_command(command_text)
+
+        if parsed_commands:
+            # Generate action sequence
+            action_sequence = self.generate_action_sequence(parsed_commands, command_text)
+
+            # Publish the action sequence
+            sequence_msg = String()
+            sequence_msg.data = json.dumps(action_sequence)
+            self.action_sequence_pub.publish(sequence_msg)
+
+            # Provide feedback
+            feedback_msg = String()
+            feedback_msg.data = f"Generated {len(parsed_commands)} actions for: {command_text}"
+            self.feedback_pub.publish(feedback_msg)
+
+            self.get_logger().info(f"Generated action sequence with {len(parsed_commands)} actions")
+        else:
+            # No commands parsed
+            feedback_msg = String()
+            feedback_msg.data = f"Could not understand command: {command_text}"
+            self.feedback_pub.publish(feedback_msg)
+
+    def generate_action_sequence(self, parsed_commands: List[ParsedCommand], original_command: str) -> Dict[str, Any]:
+        """Generate a complete action sequence from parsed commands"""
+        sequence_id = f"seq_{self.sequence_counter}"
+        self.sequence_counter += 1
+
+        # Resolve dependencies and create execution order
+        execution_plan = self.resolve_dependencies(parsed_commands)
+
+        # Create action sequence structure
+        action_sequence = {
+            "id": sequence_id,
+            "original_command": original_command,
+            "timestamp": self.get_clock().now().to_msg(),
+            "actions": [],
+            "execution_plan": execution_plan,
+            "status": "pending"
+        }
+
+        # Convert parsed commands to ROS 2 action format
+        for i, cmd in enumerate(execution_plan):
+            action = self.convert_to_ros_action(cmd, i)
+            action_sequence["actions"].append(action)
+
+        # Store for tracking
+        self.action_sequences[sequence_id] = action_sequence
+
+        return action_sequence
+
+    def resolve_dependencies(self, commands: List[ParsedCommand]) -> List[ParsedCommand]:
+        """Resolve dependencies between commands to determine execution order"""
+        # Simple dependency resolution
+        # In practice, this would be more sophisticated
+        resolved_commands = []
+
+        # Group commands by type to handle dependencies
+        nav_commands = [c for c in commands if c.action_type == ActionType.NAVIGATION]
+        manipulation_commands = [c for c in commands if c.action_type == ActionType.MANIPULATION]
+        perception_commands = [c for c in commands if c.action_type == ActionType.PERCEPTION]
+        other_commands = [c for c in commands if c.action_type not in [ActionType.NAVIGATION, ActionType.MANIPULATION, ActionType.PERCEPTION]]
+
+        # Execute in dependency order
+        resolved_commands.extend(perception_commands)  # Perception first
+        resolved_commands.extend(nav_commands)        # Then navigation
+        resolved_commands.extend(manipulation_commands)  # Then manipulation
+        resolved_commands.extend(other_commands)      # Finally other commands
+
+        return resolved_commands
+
+    def convert_to_ros_action(self, parsed_command: ParsedCommand, step_index: int) -> Dict[str, Any]:
+        """Convert parsed command to ROS 2 action format"""
+        action = {
+            "step": step_index,
+            "action_type": parsed_command.action_type.value,
+            "parameters": parsed_command.parameters,
+            "confidence": parsed_command.confidence,
+            "ros_action": self.get_ros_action_name(parsed_command),
+            "timeout": 30.0,  # Default timeout
+            "retry_count": 3
+        }
+
+        # Set specific timeouts based on action type
+        if parsed_command.action_type == ActionType.NAVIGATION:
+            action["timeout"] = 60.0
+        elif parsed_command.action_type == ActionType.MANIPULATION:
+            action["timeout"] = 45.0
+        elif parsed_command.action_type == ActionType.PERCEPTION:
+            action["timeout"] = 20.0
+
+        return action
+
+    def get_ros_action_name(self, parsed_command: ParsedCommand) -> str:
+        """Get the corresponding ROS 2 action name"""
+        action_map = self.action_mappings.get(parsed_command.action_type.value, {})
+
+        # Get specific action from parameters
+        if "action" in parsed_command.parameters:
+            specific_action = parsed_command.parameters["action"]
+            return action_map.get(specific_action, f"/default_{parsed_command.action_type.value}_action")
+
+        # Default action for the type
+        return f"/default_{parsed_command.action_type.value}_action"
+```
+
+## Advanced Natural Language Processing
+
+### Context-Aware Command Understanding
+
+For complex humanoid robot tasks, the system needs to maintain context and understand references:
+
+```python
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+from geometry_msgs.msg import PoseStamped
+from sensor_msgs.msg import Image
+import json
+import spacy
+from typing import Dict, List, Any, Optional
+from dataclasses import dataclass
+from datetime import datetime
+
+@dataclass
+class ContextItem:
+    """Represents an item in the conversation context"""
+    entity_type: str
+    value: Any
+    timestamp: datetime
+    confidence: float
+
+class ContextualLanguageProcessor(Node):
+    def __init__(self):
+        super().__init__('contextual_language_processor')
+
+        # Initialize spaCy model for NLP
+        try:
+            self.nlp = spacy.load("en_core_web_sm")
+        except OSError:
+            self.get_logger().warn("spaCy model not found, using basic parsing")
+            self.nlp = None
+
+        # Context storage
+        self.context = {
+            "objects": {},
+            "locations": {},
+            "previous_commands": [],
+            "current_task": None,
+            "entities": []
+        }
+
+        # Subscribers
+        self.command_sub = self.create_subscription(
+            String,
+            '/natural_language_commands',
+            self.command_callback,
+            10
+        )
+
+        self.pose_sub = self.create_subscription(
+            PoseStamped,
+            '/robot_pose',
+            self.pose_callback,
+            10
+        )
+
+        # Publishers
+        self.enhanced_command_pub = self.create_publisher(
+            String,
+            '/enhanced_commands',
+            10
+        )
+
+        # Update context timer
+        self.context_timer = self.create_timer(5.0, self.update_context)
+
+    def command_callback(self, msg):
+        """Process command with context awareness"""
+        command_text = msg.data
+        self.get_logger().info(f"Processing contextual command: {command_text}")
+
+        # Parse command with context
+        enhanced_command = self.parse_command_with_context(command_text)
+
+        # Publish enhanced command
+        enhanced_msg = String()
+        enhanced_msg.data = json.dumps(enhanced_command)
+        self.enhanced_command_pub.publish(enhanced_msg)
+
+        # Update context with this command
+        self.context["previous_commands"].append({
+            "command": command_text,
+            "timestamp": datetime.now().isoformat(),
+            "enhanced": enhanced_command
+        })
+
+        # Keep only recent commands (limit to 10)
+        if len(self.context["previous_commands"]) > 10:
+            self.context["previous_commands"] = self.context["previous_commands"][-10:]
+
+    def parse_command_with_context(self, command_text: str) -> Dict[str, Any]:
+        """Parse command using current context"""
+        # Perform NLP analysis
+        doc = self.nlp(command_text) if self.nlp else self.basic_nlp(command_text)
+
+        # Extract entities and resolve references
+        entities = self.extract_entities(doc)
+        resolved_entities = self.resolve_entity_references(entities)
+
+        # Identify action and intent
+        action = self.identify_action(command_text)
+        intent = self.identify_intent(command_text)
+
+        # Create enhanced command with context
+        enhanced_command = {
+            "original_text": command_text,
+            "action": action,
+            "intent": intent,
+            "entities": resolved_entities,
+            "context": self.context.copy(),
+            "resolved_command": self.generate_resolved_command(resolved_entities, action)
+        }
+
+        return enhanced_command
+
+    def extract_entities(self, doc) -> List[Dict[str, Any]]:
+        """Extract named entities from the command"""
+        entities = []
+
+        if self.nlp:
+            # Use spaCy NER
+            for ent in doc.ents:
+                entities.append({
+                    "text": ent.text,
+                    "label": ent.label_,
+                    "start": ent.start_char,
+                    "end": ent.end_char,
+                    "confidence": 1.0
+                })
+        else:
+            # Basic entity extraction
+            import re
+
+            # Extract potential locations
+            locations = re.findall(r'\b(kitchen|living room|bedroom|office|dining room|entrance|bathroom)\b', command_text, re.IGNORECASE)
+            for loc in locations:
+                entities.append({
+                    "text": loc,
+                    "label": "LOCATION",
+                    "start": command_text.lower().find(loc.lower()),
+                    "end": command_text.lower().find(loc.lower()) + len(loc),
+                    "confidence": 0.8
+                })
+
+            # Extract potential objects
+            objects = re.findall(r'\b(cup|bottle|book|phone|keys|water|coffee|apple|ball|toy)\b', command_text, re.IGNORECASE)
+            for obj in objects:
+                entities.append({
+                    "text": obj,
+                    "label": "OBJECT",
+                    "start": command_text.lower().find(obj.lower()),
+                    "end": command_text.lower().find(obj.lower()) + len(obj),
+                    "confidence": 0.7
+                })
+
+        return entities
+
+    def resolve_entity_references(self, entities: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Resolve pronouns and references using context"""
+        resolved_entities = []
+
+        for entity in entities:
+            if entity["label"] == "LOCATION":
+                # Resolve location using context
+                resolved_location = self.resolve_location_reference(entity["text"])
+                resolved_entities.append({
+                    **entity,
+                    "resolved_value": resolved_location,
+                    "type": "location"
+                })
+            elif entity["label"] == "OBJECT":
+                # Resolve object using context
+                resolved_object = self.resolve_object_reference(entity["text"])
+                resolved_entities.append({
+                    **entity,
+                    "resolved_value": resolved_object,
+                    "type": "object"
+                })
+            else:
+                resolved_entities.append(entity)
+
+        return resolved_entities
+
+    def resolve_location_reference(self, location_text: str) -> Dict[str, Any]:
+        """Resolve location reference using context"""
+        # Check if this is a known location
+        known_locations = {
+            "kitchen": {"x": 1.0, "y": 2.0, "z": 0.0},
+            "living room": {"x": 3.0, "y": 1.0, "z": 0.0},
+            "bedroom": {"x": 5.0, "y": 3.0, "z": 0.0},
+            "office": {"x": 2.0, "y": 4.0, "z": 0.0},
+            "dining room": {"x": 4.0, "y": 2.0, "z": 0.0},
+            "entrance": {"x": 0.0, "y": 0.0, "z": 0.0}
+        }
+
+        location_lower = location_text.lower()
+        if location_lower in known_locations:
+            return known_locations[location_lower]
+
+        # Check for relative references
+        if location_text.lower() in ["here", "this place", "current location"]:
+            # Use current robot pose (would need to be stored)
+            return self.context.get("current_location", {"x": 0.0, "y": 0.0, "z": 0.0})
+
+        if location_text.lower() in ["there", "that place"]:
+            # Use last mentioned location from context
+            if self.context["locations"]:
+                last_loc = list(self.context["locations"].values())[-1]
+                return last_loc
+
+        return {"x": 0.0, "y": 0.0, "z": 0.0, "unresolved": True}
+
+    def resolve_object_reference(self, object_text: str) -> Dict[str, Any]:
+        """Resolve object reference using context"""
+        object_lower = object_text.lower()
+
+        # Check if object was previously mentioned
+        for prev_obj_name, prev_obj_data in self.context["objects"].items():
+            if object_lower in prev_obj_name.lower() or prev_obj_name.lower() in object_lower:
+                return prev_obj_data
+
+        # Default object properties
+        default_objects = {
+            "cup": {"type": "container", "grasp_point": [0.0, 0.0, 0.1], "weight": 0.2},
+            "bottle": {"type": "container", "grasp_point": [0.0, 0.0, 0.15], "weight": 0.5},
+            "book": {"type": "flat", "grasp_point": [0.0, 0.0, 0.02], "weight": 0.8},
+            "phone": {"type": "electronic", "grasp_point": [0.0, 0.0, 0.01], "weight": 0.2},
+            "keys": {"type": "small", "grasp_point": [0.0, 0.0, 0.01], "weight": 0.05}
+        }
+
+        if object_lower in default_objects:
+            return default_objects[object_lower]
+
+        return {"type": "unknown", "grasp_point": [0.0, 0.0, 0.05], "weight": 0.1, "unresolved": True}
+
+    def identify_action(self, command_text: str) -> str:
+        """Identify the main action in the command"""
+        command_lower = command_text.lower()
+
+        action_keywords = {
+            "navigation": ["go", "move", "navigate", "walk", "travel", "approach"],
+            "manipulation": ["pick", "grab", "take", "lift", "place", "put", "hold"],
+            "perception": ["find", "locate", "look", "see", "detect", "search", "recognize"],
+            "communication": ["say", "tell", "speak", "repeat", "ask", "answer"]
+        }
+
+        for action_type, keywords in action_keywords.items():
+            for keyword in keywords:
+                if keyword in command_lower:
+                    return action_type
+
+        return "unknown"
+
+    def identify_intent(self, command_text: str) -> str:
+        """Identify the intent of the command"""
+        command_lower = command_text.lower()
+
+        if any(word in command_lower for word in ["bring", "get", "fetch", "carry"]):
+            return "fetch_object"
+        elif any(word in command_lower for word in ["go to", "move to", "navigate to"]):
+            return "navigate_to_location"
+        elif any(word in command_lower for word in ["find", "locate", "search for"]):
+            return "search_for_object"
+        elif any(word in command_lower for word in ["put", "place", "set down"]):
+            return "place_object"
+        elif any(word in command_lower for word in ["follow", "come with"]):
+            return "follow_person"
+        elif any(word in command_lower for word in ["wait", "stop", "pause"]):
+            return "wait_command"
+        elif any(word in command_lower for word in ["help", "assist"]):
+            return "request_assistance"
+
+        return "general_command"
+
+    def generate_resolved_command(self, entities: List[Dict[str, Any]], action: str) -> Dict[str, Any]:
+        """Generate a resolved command structure"""
+        resolved = {
+            "action": action,
+            "targets": [],
+            "parameters": {}
+        }
+
+        for entity in entities:
+            if entity["type"] == "location":
+                resolved["targets"].append({
+                    "type": "location",
+                    "value": entity["resolved_value"],
+                    "original_text": entity["text"]
+                })
+            elif entity["type"] == "object":
+                resolved["targets"].append({
+                    "type": "object",
+                    "value": entity["resolved_value"],
+                    "original_text": entity["text"]
+                })
+
+        return resolved
+
+    def pose_callback(self, msg):
+        """Update robot's current location in context"""
+        self.context["current_location"] = {
+            "x": msg.pose.position.x,
+            "y": msg.pose.position.y,
+            "z": msg.pose.position.z,
+            "timestamp": datetime.now().isoformat()
+        }
+
+    def update_context(self):
+        """Periodically update context"""
+        # Clean up old context items
+        current_time = datetime.now()
+
+        # Remove entities older than 5 minutes
+        self.context["entities"] = [
+            e for e in self.context["entities"]
+            if (current_time - datetime.fromisoformat(e["timestamp"])).seconds < 300
+        ]
+
+        self.get_logger().debug("Context updated")
+
+    def basic_nlp(self, text: str):
+        """Basic NLP processing when spaCy is not available"""
+        class MockDoc:
+            def __init__(self, text):
+                self.text = text
+                self.ents = []  # No named entities in basic processing
+
+        return MockDoc(text)
+```
+
+## ROS 2 Action Sequence Execution
+
+### Action Sequence Executor
+
+Once natural language commands are translated into action sequences, they need to be executed by the ROS 2 system:
+
+```python
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+from action_msgs.msg import GoalStatus
+from rclpy.action import ActionClient
+from rclpy.callback_groups import ReentrantCallbackGroup
+from geometry_msgs.msg import PoseStamped
+import json
+import asyncio
+from typing import Dict, List, Any, Optional
+from dataclasses import dataclass
+
+@dataclass
+class ActionStep:
+    """Represents a single step in an action sequence"""
+    step_id: str
+    action_type: str
+    parameters: Dict[str, Any]
+    timeout: float
+    retry_count: int
+
+class ActionSequenceExecutor(Node):
+    def __init__(self):
+        super().__init__('action_sequence_executor')
+
+        # Action clients for different action types
+        self.action_clients = {}
+
+        # Callback group for concurrent action execution
+        self.callback_group = ReentrantCallbackGroup()
+
+        # Subscribers
+        self.sequence_sub = self.create_subscription(
+            String,
+            '/action_sequences',
+            self.sequence_callback,
+            10
+        )
+
+        self.status_sub = self.create_subscription(
+            String,
+            '/action_status',
+            self.status_callback,
+            10
+        )
+
+        # Publishers
+        self.status_pub = self.create_publisher(
+            String,
+            '/execution_status',
+            10
+        )
+
+        self.feedback_pub = self.create_publisher(
+            String,
+            '/execution_feedback',
+            10
+        )
+
+        # Active sequences tracking
+        self.active_sequences = {}
+        self.active_goals = {}
+
+    def sequence_callback(self, msg):
+        """Handle incoming action sequence"""
+        try:
+            sequence_data = json.loads(msg.data)
+            sequence_id = sequence_data["id"]
+
+            self.get_logger().info(f"Received action sequence: {sequence_id}")
+
+            # Execute the sequence asynchronously
+            future = asyncio.run_coroutine_threadsafe(
+                self.execute_sequence(sequence_data),
+                self.executor
+            )
+
+            # Store sequence info
+            self.active_sequences[sequence_id] = {
+                "data": sequence_data,
+                "status": "executing",
+                "future": future
+            }
+
+        except json.JSONDecodeError as e:
+            self.get_logger().error(f"Invalid JSON in action sequence: {e}")
+        except Exception as e:
+            self.get_logger().error(f"Error processing action sequence: {e}")
+
+    async def execute_sequence(self, sequence_data: Dict[str, Any]):
+        """Execute an action sequence asynchronously"""
+        sequence_id = sequence_data["id"]
+        actions = sequence_data["actions"]
+
+        self.get_logger().info(f"Starting execution of sequence {sequence_id} with {len(actions)} actions")
+
+        execution_status = {
+            "sequence_id": sequence_id,
+            "status": "executing",
+            "completed_actions": 0,
+            "total_actions": len(actions),
+            "action_results": []
+        }
+
+        for i, action in enumerate(actions):
+            action_step = ActionStep(
+                step_id=f"{sequence_id}_step_{i}",
+                action_type=action["action_type"],
+                parameters=action["parameters"],
+                timeout=action["timeout"],
+                retry_count=action["retry_count"]
+            )
+
+            # Execute the action with retries
+            result = await self.execute_action_with_retry(action_step)
+
+            execution_status["action_results"].append({
+                "step": i,
+                "action_type": action_step.action_type,
+                "result": result,
+                "success": result.get("success", False)
+            })
+
+            execution_status["completed_actions"] = i + 1
+
+            # Update status
+            status_msg = String()
+            status_msg.data = json.dumps(execution_status)
+            self.status_pub.publish(status_msg)
+
+            if not result.get("success", False):
+                # Action failed and retries exhausted
+                execution_status["status"] = "failed"
+                execution_status["error"] = result.get("error", "Action failed")
+                break
+        else:
+            # All actions completed successfully
+            execution_status["status"] = "completed"
+
+        # Final status update
+        status_msg = String()
+        status_msg.data = json.dumps(execution_status)
+        self.status_pub.publish(status_msg)
+
+        self.get_logger().info(f"Sequence {sequence_id} execution completed with status: {execution_status['status']}")
+
+    async def execute_action_with_retry(self, action_step: ActionStep) -> Dict[str, Any]:
+        """Execute an action with retry logic"""
+        last_error = None
+
+        for attempt in range(action_step.retry_count + 1):
+            try:
+                result = await self.execute_single_action(action_step)
+
+                if result.get("success", False):
+                    return result
+                else:
+                    last_error = result.get("error", "Unknown error")
+                    self.get_logger().warn(f"Action {action_step.step_id} failed (attempt {attempt + 1}): {last_error}")
+
+                    if attempt < action_step.retry_count:
+                        # Wait before retry
+                        await asyncio.sleep(1.0)
+            except Exception as e:
+                last_error = str(e)
+                self.get_logger().error(f"Exception in action {action_step.step_id} (attempt {attempt + 1}): {e}")
+
+                if attempt < action_step.retry_count:
+                    await asyncio.sleep(1.0)
+
+        # All retries failed
+        return {
+            "success": False,
+            "error": f"Action failed after {action_step.retry_count + 1} attempts: {last_error}",
+            "attempt_count": action_step.retry_count + 1
+        }
+
+    async def execute_single_action(self, action_step: ActionStep) -> Dict[str, Any]:
+        """Execute a single action based on its type"""
+        try:
+            if action_step.action_type == "navigation":
+                return await self.execute_navigation_action(action_step)
+            elif action_step.action_type == "manipulation":
+                return await self.execute_manipulation_action(action_step)
+            elif action_step.action_type == "perception":
+                return await self.execute_perception_action(action_step)
+            elif action_step.action_type == "communication":
+                return await self.execute_communication_action(action_step)
+            else:
+                return {
+                    "success": False,
+                    "error": f"Unknown action type: {action_step.action_type}"
+                }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Exception executing {action_step.action_type} action: {str(e)}"
+            }
+
+    async def execute_navigation_action(self, action_step: ActionStep) -> Dict[str, Any]:
+        """Execute navigation action"""
+        try:
+            # Extract navigation parameters
+            target_pose = action_step.parameters.get("pose", {})
+
+            if not target_pose:
+                return {"success": False, "error": "No target pose provided for navigation"}
+
+            # Create navigation goal
+            goal_msg = self.create_navigation_goal(target_pose)
+
+            # Send navigation goal using Nav2 action client
+            # In a real implementation, you would use the actual Nav2 action client
+            nav_client = self.get_action_client("/navigate_to_pose", "NavigateToPose")
+
+            if nav_client is None:
+                return {"success": False, "error": "Navigation action client not available"}
+
+            # Wait for server
+            if not nav_client.wait_for_server(timeout_sec=5.0):
+                return {"success": False, "error": "Navigation server not available"}
+
+            # Send goal
+            goal_future = nav_client.send_goal_async(goal_msg)
+            goal_handle = await goal_future
+
+            if not goal_handle.accepted:
+                return {"success": False, "error": "Navigation goal rejected"}
+
+            # Get result
+            result_future = goal_handle.get_result_async()
+            result = await result_future
+
+            success = result.result.status == GoalStatus.STATUS_SUCCEEDED
+            return {"success": success, "result": result.result if success else None}
+
+        except Exception as e:
+            return {"success": False, "error": f"Navigation execution failed: {str(e)}"}
+
+    async def execute_manipulation_action(self, action_step: ActionStep) -> Dict[str, Any]:
+        """Execute manipulation action"""
+        try:
+            # Extract manipulation parameters
+            action = action_step.parameters.get("action", "")
+            target_object = action_step.parameters.get("target_object", "")
+
+            if not action:
+                return {"success": False, "error": "No manipulation action specified"}
+
+            # Create appropriate manipulation goal based on action type
+            if action == "pick_up":
+                goal_msg = self.create_pickup_goal(target_object)
+            elif action == "place":
+                goal_msg = self.create_place_goal(target_object, action_step.parameters.get("target_surface", ""))
+            else:
+                return {"success": False, "error": f"Unknown manipulation action: {action}"}
+
+            # Execute manipulation using appropriate action client
+            manipulation_client = self.get_action_client("/manipulation_action", "ManipulationAction")
+
+            if manipulation_client is None:
+                return {"success": False, "error": "Manipulation action client not available"}
+
+            # Wait for server and send goal (similar to navigation)
+            if not manipulation_client.wait_for_server(timeout_sec=5.0):
+                return {"success": False, "error": "Manipulation server not available"}
+
+            goal_future = manipulation_client.send_goal_async(goal_msg)
+            goal_handle = await goal_future
+
+            if not goal_handle.accepted:
+                return {"success": False, "error": "Manipulation goal rejected"}
+
+            result_future = goal_handle.get_result_async()
+            result = await result_future
+
+            success = result.result.status == GoalStatus.STATUS_SUCCEEDED
+            return {"success": success, "result": result.result if success else None}
+
+        except Exception as e:
+            return {"success": False, "error": f"Manipulation execution failed: {str(e)}"}
+
+    async def execute_perception_action(self, action_step: ActionStep) -> Dict[str, Any]:
+        """Execute perception action"""
+        try:
+            # Extract perception parameters
+            action = action_step.parameters.get("action", "")
+            target_object = action_step.parameters.get("target_object", "")
+
+            if not action:
+                return {"success": False, "error": "No perception action specified"}
+
+            # Create appropriate perception goal
+            if action == "detect":
+                goal_msg = self.create_detection_goal(target_object)
+            elif action == "recognize":
+                goal_msg = self.create_recognition_goal(target_object)
+            else:
+                return {"success": False, "error": f"Unknown perception action: {action}"}
+
+            # Execute perception using appropriate action client
+            perception_client = self.get_action_client("/perception_action", "PerceptionAction")
+
+            if perception_client is None:
+                return {"success": False, "error": "Perception action client not available"}
+
+            if not perception_client.wait_for_server(timeout_sec=5.0):
+                return {"success": False, "error": "Perception server not available"}
+
+            goal_future = perception_client.send_goal_async(goal_msg)
+            goal_handle = await goal_future
+
+            if not goal_handle.accepted:
+                return {"success": False, "error": "Perception goal rejected"}
+
+            result_future = goal_handle.get_result_async()
+            result = await result_future
+
+            success = result.result.status == GoalStatus.STATUS_SUCCEEDED
+            return {"success": success, "result": result.result if success else None}
+
+        except Exception as e:
+            return {"success": False, "error": f"Perception execution failed: {str(e)}"}
+
+    async def execute_communication_action(self, action_step: ActionStep) -> Dict[str, Any]:
+        """Execute communication action"""
+        try:
+            # For communication actions, we might just publish to a speech topic
+            text = action_step.parameters.get("text", "")
+
+            if not text:
+                return {"success": False, "error": "No text provided for communication"}
+
+            # In a real implementation, this would trigger speech synthesis
+            # For now, we'll just return success
+            return {"success": True, "message": f"Communication executed: {text}"}
+
+        except Exception as e:
+            return {"success": False, "error": f"Communication execution failed: {str(e)}"}
+
+    def get_action_client(self, action_name: str, action_type: str):
+        """Get or create an action client"""
+        if action_name not in self.action_clients:
+            # In a real implementation, you would create the specific action client
+            # For example: ActionClient(self, NavigateToPose, action_name)
+            self.action_clients[action_name] = None  # Placeholder
+
+        return self.action_clients[action_name]
+
+    def create_navigation_goal(self, pose_data: Dict[str, float]):
+        """Create navigation goal message"""
+        goal = PoseStamped()
+        goal.pose.position.x = pose_data.get("x", 0.0)
+        goal.pose.position.y = pose_data.get("y", 0.0)
+        goal.pose.position.z = pose_data.get("z", 0.0)
+        # Set orientation as needed
+        goal.pose.orientation.w = 1.0
+        return goal
+
+    def status_callback(self, msg):
+        """Handle action status updates"""
+        try:
+            status_data = json.loads(msg.data)
+            # Process status updates from individual actions
+            self.get_logger().debug(f"Received action status: {status_data}")
+        except json.JSONDecodeError:
+            self.get_logger().error("Invalid JSON in status message")
+
+    def cancel_sequence(self, sequence_id: str):
+        """Cancel an executing sequence"""
+        if sequence_id in self.active_sequences:
+            future = self.active_sequences[sequence_id]["future"]
+            future.cancel()
+
+            # Update status
+            self.active_sequences[sequence_id]["status"] = "cancelled"
+
+            status_msg = String()
+            status_msg.data = json.dumps({
+                "sequence_id": sequence_id,
+                "status": "cancelled"
+            })
+            self.status_pub.publish(status_msg)
+```
+
+## Error Handling and Recovery
+
+### Robust Error Handling for Natural Language Commands
+
+Natural language processing systems must handle various types of errors gracefully:
+
+```python
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+from action_msgs.msg import GoalStatus
+from typing import Dict, List, Any
+import json
+import traceback
+from enum import Enum
+
+class ErrorType(Enum):
+    """Types of errors that can occur in NLP to ROS translation"""
+    PARSING_ERROR = "parsing_error"
+    AMBIGUITY_ERROR = "ambiguity_error"
+    EXECUTION_ERROR = "execution_error"
+    CONTEXT_ERROR = "context_error"
+    RESOURCE_ERROR = "resource_error"
+
+class ErrorRecoverySystem(Node):
+    def __init__(self):
+        super().__init__('error_recovery_system')
+
+        # Subscribers
+        self.error_sub = self.create_subscription(
+            String,
+            '/nlp_errors',
+            self.error_callback,
+            10
+        )
+
+        self.command_sub = self.create_subscription(
+            String,
+            '/natural_language_commands',
+            self.command_callback,
+            10
+        )
+
+        # Publishers
+        self.recovery_command_pub = self.create_publisher(
+            String,
+            '/recovery_commands',
+            10
+        )
+
+        self.clarification_pub = self.create_publisher(
+            String,
+            '/clarification_requests',
+            10
+        )
+
+        # Error tracking
+        self.error_history = []
+        self.max_error_history = 50
+
+        # Recovery strategies
+        self.recovery_strategies = {
+            ErrorType.PARSING_ERROR: self.handle_parsing_error,
+            ErrorType.AMBIGUITY_ERROR: self.handle_ambiguity_error,
+            ErrorType.EXECUTION_ERROR: self.handle_execution_error,
+            ErrorType.CONTEXT_ERROR: self.handle_context_error,
+            ErrorType.RESOURCE_ERROR: self.handle_resource_error
+        }
+
+    def error_callback(self, msg):
+        """Handle incoming errors from NLP system"""
+        try:
+            error_data = json.loads(msg.data)
+            error_type = ErrorType(error_data.get("type", "unknown_error"))
+
+            self.get_logger().warn(f"Received error: {error_data}")
+
+            # Add to error history
+            error_data["timestamp"] = self.get_clock().now().to_msg()
+            self.error_history.append(error_data)
+
+            if len(self.error_history) > self.max_error_history:
+                self.error_history.pop(0)
+
+            # Apply appropriate recovery strategy
+            if error_type in self.recovery_strategies:
+                recovery_result = self.recovery_strategies[error_type](error_data)
+
+                if recovery_result:
+                    recovery_msg = String()
+                    recovery_msg.data = json.dumps(recovery_result)
+                    self.recovery_command_pub.publish(recovery_msg)
+
+        except json.JSONDecodeError:
+            self.get_logger().error("Invalid JSON in error message")
+        except Exception as e:
+            self.get_logger().error(f"Error handling error callback: {e}")
+
+    def handle_parsing_error(self, error_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle parsing errors in natural language"""
+        original_command = error_data.get("original_command", "")
+
+        # Request clarification
+        clarification = {
+            "type": "parsing_error",
+            "message": f"I didn't understand your command: '{original_command}'. Could you please rephrase it?",
+            "original_command": original_command,
+            "suggestions": self.generate_parsing_suggestions(original_command)
+        }
+
+        clarification_msg = String()
+        clarification_msg.data = json.dumps(clarification)
+        self.clarification_pub.publish(clarification_msg)
+
+        return {
+            "action": "request_clarification",
+            "command": original_command,
+            "suggestions": clarification["suggestions"]
+        }
+
+    def handle_ambiguity_error(self, error_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle ambiguous commands"""
+        original_command = error_data.get("original_command", "")
+        ambiguous_parts = error_data.get("ambiguous_parts", [])
+
+        # Request disambiguation
+        clarification = {
+            "type": "ambiguity_error",
+            "message": f"I found multiple possible interpretations of your command: '{original_command}'. Could you clarify?",
+            "ambiguous_parts": ambiguous_parts,
+            "options": self.generate_disambiguation_options(ambiguous_parts)
+        }
+
+        clarification_msg = String()
+        clarification_msg.data = json.dumps(clarification)
+        self.clarification_pub.publish(clarification_msg)
+
+        return {
+            "action": "request_disambiguation",
+            "command": original_command,
+            "options": clarification["options"]
+        }
+
+    def handle_execution_error(self, error_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle errors during action execution"""
+        failed_action = error_data.get("failed_action", {})
+        error_message = error_data.get("error_message", "")
+
+        # Try alternative approaches
+        alternative_actions = self.generate_alternative_actions(failed_action)
+
+        if alternative_actions:
+            return {
+                "action": "try_alternatives",
+                "failed_action": failed_action,
+                "alternatives": alternative_actions,
+                "error_message": error_message
+            }
+        else:
+            # No alternatives available, request human intervention
+            clarification = {
+                "type": "execution_error",
+                "message": f"I couldn't execute the requested action: {error_message}. Would you like me to try something else?",
+                "failed_action": failed_action
+            }
+
+            clarification_msg = String()
+            clarification_msg.data = json.dumps(clarification)
+            self.clarification_pub.publish(clarification_msg)
+
+            return {
+                "action": "request_alternative",
+                "error_message": error_message
+            }
+
+    def handle_context_error(self, error_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle context-related errors"""
+        missing_context = error_data.get("missing_context", [])
+
+        # Request missing context information
+        clarification = {
+            "type": "context_error",
+            "message": "I need more context to understand your command. Could you provide the missing information?",
+            "missing_context": missing_context
+        }
+
+        clarification_msg = String()
+        clarification_msg.data = json.dumps(clarification)
+        self.clarification_pub.publish(clarification_msg)
+
+        return {
+            "action": "request_context",
+            "missing_context": missing_context
+        }
+
+    def handle_resource_error(self, error_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle resource availability errors"""
+        resource_type = error_data.get("resource_type", "")
+        resource_name = error_data.get("resource_name", "")
+
+        # Inform about resource unavailability and suggest alternatives
+        clarification = {
+            "type": "resource_error",
+            "message": f"The requested resource ({resource_name}) is not available. Would you like me to use an alternative?",
+            "resource_type": resource_type,
+            "resource_name": resource_name,
+            "alternatives": self.find_resource_alternatives(resource_type, resource_name)
+        }
+
+        clarification_msg = String()
+        clarification_msg.data = json.dumps(clarification)
+        self.clarification_pub.publish(clarification_msg)
+
+        return {
+            "action": "suggest_alternative_resource",
+            "resource_type": resource_type,
+            "alternatives": clarification["alternatives"]
+        }
+
+    def generate_parsing_suggestions(self, command: str) -> List[str]:
+        """Generate suggestions for rephrasing a command"""
+        suggestions = []
+
+        # Common rephrasing suggestions
+        if "to" in command.lower():
+            suggestions.append(f"Try: 'Go to the {command.split('to')[-1].strip()}'")
+
+        if any(word in command.lower() for word in ["can you", "could you"]):
+            suggestions.append(f"Try: '{command.replace('can you', '').replace('could you', '').strip()}'")
+
+        # Add more sophisticated suggestions based on command patterns
+        suggestions.append("Try using simpler, more direct language")
+        suggestions.append("Specify locations more clearly (e.g., 'kitchen' instead of 'that room')")
+
+        return suggestions[:3]  # Return top 3 suggestions
+
+    def generate_disambiguation_options(self, ambiguous_parts: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+        """Generate options for disambiguating parts of a command"""
+        options = []
+
+        for part in ambiguous_parts:
+            text = part.get("text", "")
+            interpretations = part.get("interpretations", [])
+
+            for i, interpretation in enumerate(interpretations[:3]):  # Limit to 3 options
+                options.append({
+                    "text": text,
+                    "interpretation": interpretation,
+                    "option_id": f"option_{len(options)}"
+                })
+
+        return options
+
+    def generate_alternative_actions(self, failed_action: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Generate alternative actions when the original fails"""
+        action_type = failed_action.get("action_type", "")
+        parameters = failed_action.get("parameters", {})
+
+        alternatives = []
+
+        if action_type == "navigation":
+            # Try alternative navigation approaches
+            alternatives.extend([
+                {
+                    "action_type": "navigation",
+                    "parameters": {**parameters, "approach": "safe_path"},
+                    "reason": "Using safer path planning"
+                },
+                {
+                    "action_type": "navigation",
+                    "parameters": {**parameters, "approach": "shorter_path"},
+                    "reason": "Using shorter alternative path"
+                }
+            ])
+        elif action_type == "manipulation":
+            # Try alternative manipulation approaches
+            alternatives.extend([
+                {
+                    "action_type": "perception",
+                    "parameters": {"action": "detect", "target_object": parameters.get("target_object")},
+                    "reason": "First locate the object"
+                },
+                {
+                    "action_type": "manipulation",
+                    "parameters": {**parameters, "approach": "gentle_grasp"},
+                    "reason": "Using gentler grasp"
+                }
+            ])
+
+        return alternatives
+
+    def find_resource_alternatives(self, resource_type: str, resource_name: str) -> List[str]:
+        """Find alternative resources when the requested one is unavailable"""
+        alternatives = []
+
+        if resource_type == "location":
+            # Common location alternatives
+            location_alternatives = {
+                "kitchen": ["dining room", "pantry", "breakfast nook"],
+                "living room": ["family room", "sitting room", "great room"],
+                "bedroom": ["guest room", "master bedroom", "sleeping area"]
+            }
+            alternatives = location_alternatives.get(resource_name.lower(), [])
+        elif resource_type == "object":
+            # Common object alternatives
+            object_alternatives = {
+                "cup": ["mug", "glass", "container"],
+                "chair": ["stool", "seat", "bench"],
+                "table": ["desk", "counter", "surface"]
+            }
+            alternatives = object_alternatives.get(resource_name.lower(), [])
+
+        return alternatives
+
+    def command_callback(self, msg):
+        """Handle new commands and check for error patterns"""
+        command_text = msg.data.lower()
+
+        # Check for common error patterns in user commands
+        error_indicators = [
+            ("unclear", ["what do you mean", "i don't understand", "can you"]),
+            ("repetition", [command_text]),  # If same command repeated
+            ("negation", ["not", "don't", "stop"])  # Commands with negation
+        ]
+
+        for error_type, patterns in error_indicators:
+            if any(pattern in command_text for pattern in patterns):
+                self.get_logger().info(f"Detected potential {error_type} pattern in command: {command_text}")
+                # Could trigger proactive clarification here
+
+    def get_error_statistics(self) -> Dict[str, Any]:
+        """Get statistics about errors for system improvement"""
+        if not self.error_history:
+            return {"error_count": 0}
+
+        error_counts = {}
+        for error in self.error_history:
+            error_type = error.get("type", "unknown")
+            error_counts[error_type] = error_counts.get(error_type, 0) + 1
+
+        return {
+            "error_count": len(self.error_history),
+            "error_types": error_counts,
+            "recent_errors": self.error_history[-5:]  # Last 5 errors
+        }
+```
+
+## Performance Optimization
+
+### Optimizing Natural Language Processing for Real-time Systems
+
+For humanoid robots that need real-time response, optimization is crucial:
+
+```python
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+from sensor_msgs.msg import Image
+import json
+import time
+from collections import deque
+import threading
+from typing import Dict, List, Any
+
+class OptimizedNaturalLanguageProcessor(Node):
+    def __init__(self):
+        super().__init__('optimized_nlp_processor')
+
+        # Performance monitoring
+        self.processing_times = deque(maxlen=100)
+        self.target_response_time = 0.5  # 500ms target
+        self.processing_enabled = True
+
+        # Caching for frequently used commands
+        self.command_cache = {}
+        self.max_cache_size = 100
+
+        # Threading for parallel processing
+        self.processing_queue = deque()
+        self.result_queue = deque(maxlen=10)
+        self.processing_thread = threading.Thread(target=self.process_commands, daemon=True)
+        self.processing_thread.start()
+
+        # Subscribers
+        self.command_sub = self.create_subscription(
+            String,
+            '/natural_language_commands',
+            self.command_callback,
+            10
+        )
+
+        # Publishers
+        self.action_pub = self.create_publisher(String, '/action_sequences', 10)
+        self.perf_pub = self.create_publisher(String, '/nlp_performance', 10)
+
+        # Performance monitoring timer
+        self.perf_timer = self.create_timer(1.0, self.publish_performance_stats)
+
+    def command_callback(self, msg):
+        """Handle incoming commands with optimization"""
+        if not self.processing_enabled:
+            return
+
+        command_text = msg.data.strip().lower()
+
+        # Check cache first
+        if command_text in self.command_cache:
+            cached_result = self.command_cache[command_text]
+            # Add small delay to simulate processing time
+            time.sleep(0.01)
+
+            action_msg = String()
+            action_msg.data = json.dumps(cached_result)
+            self.action_pub.publish(action_msg)
+
+            self.get_logger().info(f"Used cached result for: {command_text[:30]}...")
+            return
+
+        # Add to processing queue
+        start_time = time.time()
+        self.processing_queue.append((command_text, start_time))
+
+    def process_commands(self):
+        """Process commands in background thread"""
+        while rclpy.ok():
+            if self.processing_queue:
+                command_text, start_time = self.processing_queue.popleft()
+
+                try:
+                    # Process the command
+                    result = self.process_command_optimized(command_text)
+
+                    # Record processing time
+                    processing_time = time.time() - start_time
+                    self.processing_times.append(processing_time)
+
+                    # Cache result if it's a common command
+                    if len(command_text.split()) <= 5:  # Short commands are likely to repeat
+                        self.cache_command(command_text, result)
+
+                    # Publish result
+                    action_msg = String()
+                    action_msg.data = json.dumps(result)
+                    self.action_pub.publish(action_msg)
+
+                    self.get_logger().info(f"Processed command in {processing_time:.3f}s: {command_text[:30]}...")
+
+                except Exception as e:
+                    self.get_logger().error(f"Error processing command: {e}")
+                    import traceback
+                    traceback.print_exc()
+            else:
+                time.sleep(0.01)  # Small sleep to prevent busy waiting
+
+    def process_command_optimized(self, command_text: str) -> Dict[str, Any]:
+        """Optimized command processing"""
+        # Use fast, rule-based parsing for common commands
+        if self.is_common_command(command_text):
+            return self.process_common_command(command_text)
+
+        # For complex commands, use more sophisticated processing
+        return self.process_complex_command(command_text)
+
+    def is_common_command(self, command_text: str) -> bool:
+        """Check if command is common and can be processed quickly"""
+        common_patterns = [
+            "hello", "hi", "stop", "go", "come here", "follow me",
+            "go to kitchen", "go to living room", "pick up cup",
+            "find phone", "what time is it"
+        ]
+
+        return any(pattern in command_text for pattern in common_patterns)
+
+    def process_common_command(self, command_text: str) -> Dict[str, Any]:
+        """Process common commands with optimized logic"""
+        # Fast lookup table for common commands
+        command_map = {
+            "hello": {"action": "communication", "parameters": {"text": "Hello!"}},
+            "hi": {"action": "communication", "parameters": {"text": "Hi there!"}},
+            "stop": {"action": "navigation", "parameters": {"action": "stop"}},
+            "go": {"action": "navigation", "parameters": {"action": "move_forward", "distance": 1.0}},
+            "come here": {"action": "navigation", "parameters": {"action": "come_to_speaker"}},
+            "follow me": {"action": "navigation", "parameters": {"action": "follow_target", "target": "user"}},
+            "go to kitchen": {"action": "navigation", "parameters": {"location": "kitchen", "x": 1.0, "y": 2.0}},
+            "go to living room": {"action": "navigation", "parameters": {"location": "living room", "x": 3.0, "y": 1.0}},
+            "pick up cup": {"action": "manipulation", "parameters": {"action": "pick_up", "object": "cup"}},
+            "find phone": {"action": "perception", "parameters": {"action": "detect", "object": "phone"}},
+        }
+
+        if command_text in command_map:
+            result = command_map[command_text]
+            return {
+                "id": f"fast_{hash(command_text)}",
+                "actions": [result],
+                "confidence": 0.95,
+                "processing_time": "fast"
+            }
+
+        # Fallback to simple processing
+        return self.process_simple_command(command_text)
+
+    def process_simple_command(self, command_text: str) -> Dict[str, Any]:
+        """Simple command processing for unknown commands"""
+        # Extract basic information using simple string matching
+        result = {
+            "id": f"simple_{hash(command_text)}",
+            "actions": [],
+            "confidence": 0.7,
+            "processing_time": "simple"
+        }
+
+        # Look for basic action keywords
+        if any(word in command_text for word in ["go", "move", "walk", "navigate"]):
+            result["actions"].append({"action": "navigation", "parameters": {}})
+        elif any(word in command_text for word in ["pick", "grab", "take"]):
+            result["actions"].append({"action": "manipulation", "parameters": {}})
+        elif any(word in command_text for word in ["find", "look", "see"]):
+            result["actions"].append({"action": "perception", "parameters": {}})
+        else:
+            result["actions"].append({"action": "communication", "parameters": {"text": command_text}})
+
+        return result
+
+    def process_complex_command(self, command_text: str) -> Dict[str, Any]:
+        """Process complex commands that require full NLP"""
+        # In a real implementation, this would use the full NLP pipeline
+        # For this example, we'll use a simplified approach
+        return self.process_simple_command(command_text)
+
+    def cache_command(self, command_text: str, result: Dict[str, Any]):
+        """Cache command result for faster future processing"""
+        if len(self.command_cache) >= self.max_cache_size:
+            # Remove oldest entry
+            oldest_key = next(iter(self.command_cache))
+            del self.command_cache[oldest_key]
+
+        self.command_cache[command_text] = result
+
+    def publish_performance_stats(self):
+        """Publish performance statistics"""
+        if self.processing_times:
+            avg_time = sum(self.processing_times) / len(self.processing_times)
+            max_time = max(self.processing_times)
+            min_time = min(self.processing_times)
+
+            perf_data = {
+                "avg_processing_time": avg_time,
+                "max_processing_time": max_time,
+                "min_processing_time": min_time,
+                "sample_count": len(self.processing_times),
+                "cache_hit_rate": self.estimate_cache_hit_rate(),
+                "queue_size": len(self.processing_queue),
+                "target_response_time": self.target_response_time
+            }
+
+            perf_msg = String()
+            perf_msg.data = json.dumps(perf_data)
+            self.perf_pub.publish(perf_msg)
+
+            # Log if performance is degrading
+            if avg_time > self.target_response_time * 1.5:
+                self.get_logger().warn(f"Processing time degrading: {avg_time:.3f}s average")
+
+    def estimate_cache_hit_rate(self) -> float:
+        """Estimate cache hit rate (simplified)"""
+        # This would be more accurate with actual hit/miss tracking
+        return min(len(self.command_cache) / self.max_cache_size, 1.0)
+
+    def enable_processing(self, enable: bool = True):
+        """Enable or disable processing"""
+        self.processing_enabled = enable
+        state = "enabled" if enable else "disabled"
+        self.get_logger().info(f"NLP processing {state}")
+
+    def get_performance_stats(self) -> Dict[str, Any]:
+        """Get current performance statistics"""
+        if self.processing_times:
+            return {
+                "avg_processing_time": float(sum(self.processing_times) / len(self.processing_times)),
+                "max_processing_time": float(max(self.processing_times)),
+                "min_processing_time": float(min(self.processing_times)),
+                "sample_count": len(self.processing_times),
+                "cache_size": len(self.command_cache),
+                "processing_enabled": self.processing_enabled,
+                "queue_size": len(self.processing_queue)
+            }
+        else:
+            return {
+                "avg_processing_time": 0.0,
+                "max_processing_time": 0.0,
+                "min_processing_time": 0.0,
+                "sample_count": 0,
+                "cache_size": 0,
+                "processing_enabled": self.processing_enabled,
+                "queue_size": 0
+            }
+```
+
+## Summary
+
+The translation of natural language into ROS 2 action sequences is a complex but essential capability for humanoid robots operating in human environments. This system involves multiple layers:
+
+1. **Natural Language Understanding**: Converting human commands into structured data
+2. **Context Management**: Maintaining conversation history and entity references
+3. **Action Sequence Generation**: Creating executable ROS 2 action sequences
+4. **Execution Management**: Running actions with proper error handling and recovery
+5. **Performance Optimization**: Ensuring real-time response for interactive applications
+
+The system must handle ambiguity, maintain context across conversations, recover from errors gracefully, and optimize for real-time performance. These capabilities enable humanoid robots to understand and execute complex tasks based on natural human language, making them more accessible and useful in real-world applications.
+
+## References
+
+- ROS 2 Actions: https://docs.ros.org/en/rolling/Concepts/About-Actions.html
+- Natural Language Processing for Robotics: https://arxiv.org/abs/2105.02590
+- OpenAI GPT for Command Understanding: https://openai.com/research/language-models
+- Robot Operating System 2: https://docs.ros.org/en/rolling/

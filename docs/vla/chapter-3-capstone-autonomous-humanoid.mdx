@@ -1,0 +1,1295 @@
+---
+sidebar_position: 3
+---
+
+# Chapter 3: Capstone: Autonomous Humanoid Performing Object Recognition, Navigation, and Manipulation
+
+## Introduction
+
+The capstone chapter brings together all the components developed throughout the Physical AI & Humanoid Robotics curriculum into a cohesive autonomous system. This chapter demonstrates how the "Robotic Nervous System" (ROS 2), "Digital Twin" (Gazebo/Unity), "AI-Robot Brain" (NVIDIA Isaac), and "Vision-Language-Action" (VLA) modules integrate to create a fully autonomous humanoid robot capable of performing complex tasks through voice commands.
+
+The capstone project showcases an autonomous humanoid robot that can understand natural language commands, recognize objects in its environment, navigate to specified locations, and manipulate objects with precision. This integration represents the culmination of the four-module approach, demonstrating how each component contributes to a complete, functional robotic system.
+
+## System Architecture Overview
+
+### Integrated Architecture Components
+
+The autonomous humanoid system integrates all four modules into a unified architecture:
+
+```yaml
+# Autonomous Humanoid System Architecture
+autonomous_humanoid_system:
+  # Module 1: Robotic Nervous System (ROS 2)
+  ros2_communication:
+    core_nodes:
+      - robot_state_publisher
+      - joint_state_publisher
+      - tf2_ros
+      - controller_manager
+    communication_primitives:
+      - topics: sensor_data, commands, status
+      - services: configuration, calibration
+      - actions: navigation, manipulation, perception
+
+  # Module 2: Digital Twin (Simulation)
+  simulation_environment:
+    gazebo:
+      physics_engine: physx
+      rendering: ogre2
+      plugins:
+        - libgazebo_ros_joint_state_publisher.so
+        - libgazebo_ros_diff_drive.so
+        - libgazebo_ros_imu.so
+        - libgazebo_ros_camera.so
+    unity:
+      rendering: hdrp
+      vr_support: true
+      sensor_simulation: true
+
+  # Module 3: AI-Robot Brain (Isaac)
+  ai_brain:
+    perception:
+      - Isaac ROS Stereo DNN
+      - Isaac ROS VSLAM
+      - Isaac ROS Object Detection
+    navigation:
+      - Isaac ROS Global Planner
+      - Isaac ROS Local Planner
+      - Isaac ROS Path Optimizer
+    control:
+      - Isaac ROS Trajectory Controller
+      - Isaac ROS Balance Controller
+
+  # Module 4: Vision-Language-Action (VLA)
+  vla_system:
+    speech_recognition:
+      - OpenAI Whisper
+      - Voice Activity Detection
+    natural_language:
+      - Command Parser
+      - Context Manager
+      - Action Sequencer
+    execution:
+      - Action Executor
+      - Error Recovery System
+```
+
+### Real-world Deployment Architecture
+
+```yaml
+# Real-world deployment configuration
+real_world_deployment:
+  hardware_interface:
+    actuators:
+      - joint_controllers: position, velocity, effort
+      - gripper_controller: position
+      - head_controller: pan_tilt
+    sensors:
+      - cameras: rgb, depth, stereo
+      - imu: orientation, acceleration
+      - joint_encoders: position, velocity
+      - force_torque: gripper, feet
+      - lidar: 360_degree_navigation
+
+  software_stack:
+    perception_layer:
+      object_detection: yolov8_isaac_ros
+      pose_estimation: apriltag_ros
+      segmentation: isaac_ros_segmentation
+    navigation_layer:
+      slam: isaac_ros_vslam
+      path_planning: nav2_with_humanoid_adaptations
+      obstacle_avoidance: dwa_local_planner
+    manipulation_layer:
+      grasp_planning: moveit2_with_humanoid_constraints
+      trajectory_execution: joint_trajectory_controller
+    interaction_layer:
+      speech_recognition: whisper_ros
+      natural_language: vla_processor
+      action_execution: custom_action_executor
+```
+
+## Autonomous Task Execution Framework
+
+### Main Control Node
+
+The central control node orchestrates all system components:
+
+```python
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String, Bool
+from sensor_msgs.msg import Image, JointState, Imu
+from geometry_msgs.msg import PoseStamped, Twist
+from action_msgs.msg import GoalStatus
+from rclpy.action import ActionClient
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+import json
+import asyncio
+from typing import Dict, List, Any, Optional
+from enum import Enum
+
+class TaskState(Enum):
+    """States for the autonomous task execution"""
+    IDLE = "idle"
+    LISTENING = "listening"
+    PROCESSING = "processing"
+    NAVIGATING = "navigating"
+    PERCEIVING = "perceiving"
+    MANIPULATING = "manipulating"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+class AutonomousHumanoidController(Node):
+    def __init__(self):
+        super().__init__('autonomous_humanoid_controller')
+
+        # Initialize state machine
+        self.current_state = TaskState.IDLE
+        self.task_queue = []
+        self.active_task = None
+
+        # Initialize callback groups for concurrent operations
+        self.perception_group = MutuallyExclusiveCallbackGroup()
+        self.navigation_group = MutuallyExclusiveCallbackGroup()
+        self.manipulation_group = MutuallyExclusiveCallbackGroup()
+
+        # Subscribers for all sensor data
+        self.speech_sub = self.create_subscription(
+            String,
+            '/speech_to_text',
+            self.speech_callback,
+            10
+        )
+
+        self.camera_sub = self.create_subscription(
+            Image,
+            '/camera/rgb/image_raw',
+            self.camera_callback,
+            10
+        )
+
+        self.joint_state_sub = self.create_subscription(
+            JointState,
+            '/joint_states',
+            self.joint_state_callback,
+            10
+        )
+
+        self.imu_sub = self.create_subscription(
+            Imu,
+            '/imu/data',
+            self.imu_callback,
+            10
+        )
+
+        # Publishers for commands and status
+        self.command_pub = self.create_publisher(
+            String,
+            '/high_level_commands',
+            10
+        )
+
+        self.status_pub = self.create_publisher(
+            String,
+            '/autonomous_status',
+            10
+        )
+
+        self.motion_pub = self.create_publisher(
+            Twist,
+            '/cmd_vel',
+            10
+        )
+
+        # Action clients for different capabilities
+        self.nav_client = ActionClient(self, "NavigateToPose", "/navigate_to_pose")
+        self.perception_client = ActionClient(self, "DetectObjects", "/detect_objects")
+        self.manipulation_client = ActionClient(self, "PickPlace", "/pick_place")
+
+        # Task execution parameters
+        self.max_task_retries = 3
+        self.task_timeout = 60.0  # seconds
+
+        # Robot state
+        self.current_pose = None
+        self.joint_positions = {}
+        self.imu_data = None
+        self.camera_image = None
+
+        # Task execution timer
+        self.task_timer = self.create_timer(0.1, self.task_execution_loop)
+
+        # State change timer
+        self.state_timer = self.create_timer(1.0, self.publish_state)
+
+    def speech_callback(self, msg):
+        """Handle incoming speech commands"""
+        if self.current_state != TaskState.LISTENING:
+            self.get_logger().info("Switching to processing state for new command")
+            self.set_state(TaskState.PROCESSING)
+
+        # Parse the speech command and add to task queue
+        command_data = {
+            "type": "speech_command",
+            "content": msg.data,
+            "timestamp": self.get_clock().now().to_msg()
+        }
+
+        self.task_queue.append(command_data)
+        self.get_logger().info(f"Added speech command to queue: {msg.data}")
+
+    def camera_callback(self, msg):
+        """Handle camera data for perception tasks"""
+        self.camera_image = msg
+
+    def joint_state_callback(self, msg):
+        """Update joint state information"""
+        for i, name in enumerate(msg.name):
+            if i < len(msg.position):
+                self.joint_positions[name] = msg.position[i]
+
+    def imu_callback(self, msg):
+        """Update IMU data for balance and orientation"""
+        self.imu_data = msg
+
+    def task_execution_loop(self):
+        """Main task execution loop"""
+        if self.current_state == TaskState.IDLE and self.task_queue:
+            # Start processing first task
+            self.start_next_task()
+        elif self.current_state == TaskState.PROCESSING:
+            # Process the current task
+            self.process_current_task()
+        elif self.current_state == TaskState.NAVIGATING:
+            # Monitor navigation progress
+            self.monitor_navigation()
+        elif self.current_state == TaskState.PERCEIVING:
+            # Monitor perception progress
+            self.monitor_perception()
+        elif self.current_state == TaskState.MANIPULATING:
+            # Monitor manipulation progress
+            self.monitor_manipulation()
+
+    def start_next_task(self):
+        """Start the next task in the queue"""
+        if not self.task_queue:
+            self.set_state(TaskState.IDLE)
+            return
+
+        self.active_task = self.task_queue.pop(0)
+        self.get_logger().info(f"Starting task: {self.active_task['type']}")
+
+        # Determine task type and start appropriate execution
+        if self.active_task["type"] == "speech_command":
+            self.execute_speech_command(self.active_task["content"])
+        elif self.active_task["type"] == "autonomous_task":
+            self.execute_autonomous_task(self.active_task)
+
+    def execute_speech_command(self, command_text: str):
+        """Execute a speech command by translating to action sequence"""
+        # Publish command to VLA system for processing
+        command_msg = String()
+        command_msg.data = command_text
+        self.command_pub.publish(command_msg)
+
+        # Set state to processing while VLA system works
+        self.set_state(TaskState.PROCESSING)
+
+    def execute_autonomous_task(self, task_data: Dict[str, Any]):
+        """Execute a pre-defined autonomous task"""
+        task_type = task_data.get("task_type", "")
+
+        if task_type == "object_recognition":
+            self.start_object_recognition(task_data)
+        elif task_type == "navigation":
+            self.start_navigation(task_data)
+        elif task_type == "manipulation":
+            self.start_manipulation(task_data)
+        elif task_type == "complex_task":
+            self.start_complex_task(task_data)
+
+    def start_object_recognition(self, task_data: Dict[str, Any]):
+        """Start object recognition task"""
+        self.get_logger().info("Starting object recognition task")
+
+        # Set state to perceiving
+        self.set_state(TaskState.PERCEIVING)
+
+        # Create perception goal
+        goal_msg = self.create_perception_goal(task_data)
+
+        # Send goal to perception system
+        if self.perception_client.wait_for_server(timeout_sec=5.0):
+            goal_future = self.perception_client.send_goal_async(goal_msg)
+            goal_future.add_done_callback(self.perception_goal_callback)
+        else:
+            self.get_logger().error("Perception server not available")
+            self.set_state(TaskState.FAILED)
+
+    def start_navigation(self, task_data: Dict[str, Any]):
+        """Start navigation task"""
+        self.get_logger().info("Starting navigation task")
+
+        # Set state to navigating
+        self.set_state(TaskState.NAVIGATING)
+
+        # Create navigation goal
+        goal_msg = self.create_navigation_goal(task_data)
+
+        # Send goal to navigation system
+        if self.nav_client.wait_for_server(timeout_sec=5.0):
+            goal_future = self.nav_client.send_goal_async(goal_msg)
+            goal_future.add_done_callback(self.navigation_goal_callback)
+        else:
+            self.get_logger().error("Navigation server not available")
+            self.set_state(TaskState.FAILED)
+
+    def start_manipulation(self, task_data: Dict[str, Any]):
+        """Start manipulation task"""
+        self.get_logger().info("Starting manipulation task")
+
+        # Set state to manipulating
+        self.set_state(TaskState.MANIPULATING)
+
+        # Create manipulation goal
+        goal_msg = self.create_manipulation_goal(task_data)
+
+        # Send goal to manipulation system
+        if self.manipulation_client.wait_for_server(timeout_sec=5.0):
+            goal_future = self.manipulation_client.send_goal_async(goal_msg)
+            goal_future.add_done_callback(self.manipulation_goal_callback)
+        else:
+            self.get_logger().error("Manipulation server not available")
+            self.set_state(TaskState.FAILED)
+
+    def start_complex_task(self, task_data: Dict[str, Any]):
+        """Start a complex multi-step task"""
+        self.get_logger().info("Starting complex task")
+
+        # Break down complex task into subtasks
+        subtasks = self.decompose_complex_task(task_data)
+
+        # Add subtasks to queue in reverse order (stack-like)
+        for subtask in reversed(subtasks):
+            self.task_queue.insert(0, {
+                "type": "autonomous_task",
+                "task_type": subtask["type"],
+                "parameters": subtask["parameters"]
+            })
+
+        # Process first subtask
+        self.start_next_task()
+
+    def decompose_complex_task(self, task_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Decompose a complex task into simpler subtasks"""
+        # Example: "Go to kitchen and pick up the red cup" ->
+        # 1. Navigate to kitchen
+        # 2. Detect red cup
+        # 3. Pick up cup
+        # 4. Confirm success
+
+        task_description = task_data.get("description", "")
+        subtasks = []
+
+        if "go to" in task_description.lower():
+            # Extract location
+            import re
+            location_match = re.search(r'go to (\w+)', task_description.lower())
+            if location_match:
+                location = location_match.group(1)
+                subtasks.append({
+                    "type": "navigation",
+                    "parameters": {"location": location}
+                })
+
+        if "pick up" in task_description.lower() or "grab" in task_description.lower():
+            # Extract object
+            object_match = re.search(r'pick up (the )?(\w+)|grab (the )?(\w+)', task_description.lower())
+            if object_match:
+                obj = object_match.group(2) or object_match.group(4)
+                subtasks.append({
+                    "type": "object_recognition",
+                    "parameters": {"target_object": obj}
+                })
+                subtasks.append({
+                    "type": "manipulation",
+                    "parameters": {"target_object": obj, "action": "pick_up"}
+                })
+
+        # Add confirmation step
+        subtasks.append({
+            "type": "confirmation",
+            "parameters": {"task_description": task_description}
+        })
+
+        return subtasks
+
+    def perception_goal_callback(self, future):
+        """Handle perception goal completion"""
+        try:
+            goal_handle = future.result()
+            if goal_handle.accepted:
+                self.get_logger().info("Perception goal accepted")
+                # Get result
+                result_future = goal_handle.get_result_async()
+                result_future.add_done_callback(self.perception_result_callback)
+            else:
+                self.get_logger().error("Perception goal rejected")
+                self.set_state(TaskState.FAILED)
+        except Exception as e:
+            self.get_logger().error(f"Perception goal error: {e}")
+            self.set_state(TaskState.FAILED)
+
+    def navigation_goal_callback(self, future):
+        """Handle navigation goal completion"""
+        try:
+            goal_handle = future.result()
+            if goal_handle.accepted:
+                self.get_logger().info("Navigation goal accepted")
+                # Get result
+                result_future = goal_handle.get_result_async()
+                result_future.add_done_callback(self.navigation_result_callback)
+            else:
+                self.get_logger().error("Navigation goal rejected")
+                self.set_state(TaskState.FAILED)
+        except Exception as e:
+            self.get_logger().error(f"Navigation goal error: {e}")
+            self.set_state(TaskState.FAILED)
+
+    def manipulation_goal_callback(self, future):
+        """Handle manipulation goal completion"""
+        try:
+            goal_handle = future.result()
+            if goal_handle.accepted:
+                self.get_logger().info("Manipulation goal accepted")
+                # Get result
+                result_future = goal_handle.get_result_async()
+                result_future.add_done_callback(self.manipulation_result_callback)
+            else:
+                self.get_logger().error("Manipulation goal rejected")
+                self.set_state(TaskState.FAILED)
+        except Exception as e:
+            self.get_logger().error(f"Manipulation goal error: {e}")
+            self.set_state(TaskState.FAILED)
+
+    def perception_result_callback(self, future):
+        """Handle perception result"""
+        try:
+            result = future.result().result
+            if result.success:
+                self.get_logger().info(f"Perception successful: {result.objects_detected}")
+                # Move to next task or complete
+                self.set_state(TaskState.COMPLETED)
+            else:
+                self.get_logger().error(f"Perception failed: {result.error_message}")
+                self.set_state(TaskState.FAILED)
+        except Exception as e:
+            self.get_logger().error(f"Perception result error: {e}")
+            self.set_state(TaskState.FAILED)
+
+    def navigation_result_callback(self, future):
+        """Handle navigation result"""
+        try:
+            result = future.result().result
+            if result.status == GoalStatus.STATUS_SUCCEEDED:
+                self.get_logger().info("Navigation successful")
+                # Move to next task or complete
+                self.set_state(TaskState.COMPLETED)
+            else:
+                self.get_logger().error(f"Navigation failed: {result.message}")
+                self.set_state(TaskState.FAILED)
+        except Exception as e:
+            self.get_logger().error(f"Navigation result error: {e}")
+            self.set_state(TaskState.FAILED)
+
+    def manipulation_result_callback(self, future):
+        """Handle manipulation result"""
+        try:
+            result = future.result().result
+            if result.success:
+                self.get_logger().info("Manipulation successful")
+                # Move to next task or complete
+                self.set_state(TaskState.COMPLETED)
+            else:
+                self.get_logger().error(f"Manipulation failed: {result.error_message}")
+                self.set_state(TaskState.FAILED)
+        except Exception as e:
+            self.get_logger().error(f"Manipulation result error: {e}")
+            self.set_state(TaskState.FAILED)
+
+    def monitor_navigation(self):
+        """Monitor ongoing navigation"""
+        # In a real implementation, this would check navigation progress
+        # For now, we'll assume navigation continues until result callback
+        pass
+
+    def monitor_perception(self):
+        """Monitor ongoing perception"""
+        # In a real implementation, this would check perception progress
+        pass
+
+    def monitor_manipulation(self):
+        """Monitor ongoing manipulation"""
+        # In a real implementation, this would check manipulation progress
+        pass
+
+    def set_state(self, new_state: TaskState):
+        """Set new state and handle state transitions"""
+        old_state = self.current_state
+        self.current_state = new_state
+
+        self.get_logger().info(f"State transition: {old_state.value} -> {new_state.value}")
+
+        # Handle state-specific actions
+        if new_state == TaskState.IDLE:
+            # Clear active task
+            self.active_task = None
+        elif new_state == TaskState.COMPLETED:
+            # Task completed successfully
+            self.get_logger().info("Task completed successfully")
+            # Start next task if available
+            if self.task_queue:
+                self.start_next_task()
+            else:
+                self.set_state(TaskState.IDLE)
+        elif new_state == TaskState.FAILED:
+            # Task failed
+            self.get_logger().error("Task failed")
+            # Implement recovery or move to next task
+            if self.task_queue:
+                self.start_next_task()
+            else:
+                self.set_state(TaskState.IDLE)
+
+    def publish_state(self):
+        """Publish current state for monitoring"""
+        state_msg = String()
+        state_msg.data = json.dumps({
+            "state": self.current_state.value,
+            "active_task": self.active_task,
+            "task_queue_size": len(self.task_queue),
+            "timestamp": self.get_clock().now().to_msg()
+        })
+        self.status_pub.publish(state_msg)
+
+    def create_perception_goal(self, task_data: Dict[str, Any]):
+        """Create perception goal message"""
+        # This would create the specific goal message for the perception action
+        # For now, we'll return a placeholder
+        class MockPerceptionGoal:
+            def __init__(self):
+                self.target_object = task_data.get("target_object", "")
+                self.search_area = task_data.get("search_area", "current_view")
+
+        return MockPerceptionGoal()
+
+    def create_navigation_goal(self, task_data: Dict[str, Any]):
+        """Create navigation goal message"""
+        # This would create the specific goal message for the navigation action
+        class MockNavigationGoal:
+            def __init__(self):
+                location = task_data.get("location", "default")
+                # Map location names to coordinates
+                location_map = {
+                    "kitchen": {"x": 1.0, "y": 2.0, "z": 0.0},
+                    "living room": {"x": 3.0, "y": 1.0, "z": 0.0},
+                    "bedroom": {"x": 5.0, "y": 3.0, "z": 0.0},
+                    "office": {"x": 2.0, "y": 4.0, "z": 0.0}
+                }
+
+                coords = location_map.get(location, {"x": 0.0, "y": 0.0, "z": 0.0})
+                self.pose = PoseStamped()
+                self.pose.pose.position.x = coords["x"]
+                self.pose.pose.position.y = coords["y"]
+                self.pose.pose.position.z = coords["z"]
+                self.pose.pose.orientation.w = 1.0
+
+        return MockNavigationGoal()
+
+    def create_manipulation_goal(self, task_data: Dict[str, Any]):
+        """Create manipulation goal message"""
+        # This would create the specific goal message for the manipulation action
+        class MockManipulationGoal:
+            def __init__(self):
+                self.target_object = task_data.get("target_object", "")
+                self.action = task_data.get("action", "pick_up")
+                self.preferred_hand = task_data.get("preferred_hand", "right")
+
+        return MockManipulationGoal()
+```
+
+## Integration Example: Fetch Task
+
+### Complete Task Execution Example
+
+Here's a complete example of how the system executes a "fetch" task:
+
+```python
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+from geometry_msgs.msg import PoseStamped
+from action_msgs.msg import GoalStatus
+from rclpy.action import ActionClient
+import json
+
+class FetchTaskExample(Node):
+    def __init__(self):
+        super().__init__('fetch_task_example')
+
+        # Publishers
+        self.speech_pub = self.create_publisher(String, '/natural_language_commands', 10)
+        self.status_pub = self.create_publisher(String, '/fetch_task_status', 10)
+
+        # Action clients
+        self.nav_client = None  # Would be initialized with actual Nav2 action
+        self.perception_client = None  # Would be initialized with actual perception action
+        self.manipulation_client = None  # Would be initialized with actual manipulation action
+
+        # Task parameters
+        self.target_object = "red cup"
+        self.fetch_location = "kitchen"
+        self.return_location = "living room"
+
+        # Task execution state
+        self.task_step = 0
+        self.task_steps = [
+            "navigate_to_fetch_location",
+            "detect_target_object",
+            "pick_up_object",
+            "navigate_to_return_location",
+            "place_object",
+            "task_completed"
+        ]
+
+        # Timer to execute task steps
+        self.task_timer = self.create_timer(2.0, self.execute_task_step)
+
+    def execute_task_step(self):
+        """Execute the current step of the fetch task"""
+        if self.task_step >= len(self.task_steps):
+            self.get_logger().info("Fetch task completed")
+            self.publish_status("completed", "Fetch task completed successfully")
+            return
+
+        current_step = self.task_steps[self.task_step]
+        self.get_logger().info(f"Executing task step: {current_step}")
+
+        if current_step == "navigate_to_fetch_location":
+            self.navigate_to_location(self.fetch_location)
+        elif current_step == "detect_target_object":
+            self.detect_object(self.target_object)
+        elif current_step == "pick_up_object":
+            self.pick_up_object(self.target_object)
+        elif current_step == "navigate_to_return_location":
+            self.navigate_to_location(self.return_location)
+        elif current_step == "place_object":
+            self.place_object()
+        elif current_step == "task_completed":
+            self.finalize_task()
+
+        self.task_step += 1
+
+    def navigate_to_location(self, location: str):
+        """Navigate to specified location"""
+        self.get_logger().info(f"Navigating to {location}")
+
+        # In a real implementation, this would send a navigation goal
+        # For this example, we'll simulate the navigation
+        self.publish_status("navigating", f"Moving to {location}")
+
+        # Simulate navigation completion after delay
+        self.get_logger().info(f"Successfully navigated to {location}")
+
+    def detect_object(self, target_object: str):
+        """Detect the target object"""
+        self.get_logger().info(f"Detecting {target_object}")
+
+        # In a real implementation, this would use perception system
+        # For this example, we'll simulate object detection
+        self.publish_status("detecting", f"Looking for {target_object}")
+
+        # Simulate successful detection
+        self.get_logger().info(f"Successfully detected {target_object}")
+
+    def pick_up_object(self, target_object: str):
+        """Pick up the detected object"""
+        self.get_logger().info(f"Picking up {target_object}")
+
+        # In a real implementation, this would use manipulation system
+        # For this example, we'll simulate the pick-up
+        self.publish_status("manipulating", f"Grasping {target_object}")
+
+        # Simulate successful pick-up
+        self.get_logger().info(f"Successfully picked up {target_object}")
+
+    def place_object(self):
+        """Place the object at return location"""
+        self.get_logger().info("Placing object")
+
+        # In a real implementation, this would use manipulation system
+        # For this example, we'll simulate the placement
+        self.publish_status("manipulating", "Placing object")
+
+        # Simulate successful placement
+        self.get_logger().info("Successfully placed object")
+
+    def finalize_task(self):
+        """Finalize the fetch task"""
+        self.get_logger().info("Fetch task finalized")
+        self.publish_status("completed", "Fetch task completed successfully")
+
+    def publish_status(self, status: str, message: str):
+        """Publish task status"""
+        status_msg = String()
+        status_msg.data = json.dumps({
+            "status": status,
+            "message": message,
+            "step": self.task_step,
+            "total_steps": len(self.task_steps),
+            "timestamp": self.get_clock().now().to_msg()
+        })
+        self.status_pub.publish(status_msg)
+
+    def start_fetch_task(self, target_object: str, fetch_location: str, return_location: str):
+        """Start a fetch task with custom parameters"""
+        self.target_object = target_object
+        self.fetch_location = fetch_location
+        self.return_location = return_location
+
+        self.get_logger().info(f"Starting fetch task: get {target_object} from {fetch_location} and bring to {return_location}")
+
+        # Reset task execution
+        self.task_step = 0
+
+    def trigger_fetch_with_voice(self):
+        """Trigger fetch task using voice command"""
+        # Publish voice command to the system
+        command_msg = String()
+        command_msg.data = f"Please go to the {self.fetch_location} and bring me the {self.target_object}, then return to the {self.return_location}"
+        self.speech_pub.publish(command_msg)
+
+        self.get_logger().info(f"Voice command sent: {command_msg.data}")
+```
+
+## Performance Monitoring and Optimization
+
+### System Performance Monitor
+
+Monitoring the integrated system performance:
+
+```python
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String, Float32
+from sensor_msgs.msg import Image
+from builtin_interfaces.msg import Time
+import time
+from collections import deque
+import json
+
+class SystemPerformanceMonitor(Node):
+    def __init__(self):
+        super().__init__('system_performance_monitor')
+
+        # Performance tracking
+        self.response_times = deque(maxlen=100)
+        self.cpu_usage = deque(maxlen=100)
+        self.memory_usage = deque(maxlen=100)
+        self.task_success_rate = deque(maxlen=100)
+
+        # Publishers for performance metrics
+        self.response_time_pub = self.create_publisher(Float32, '/performance/response_time', 10)
+        self.cpu_usage_pub = self.create_publisher(Float32, '/performance/cpu_usage', 10)
+        self.memory_usage_pub = self.create_publisher(Float32, '/performance/memory_usage', 10)
+        self.system_status_pub = self.create_publisher(String, '/performance/system_status', 10)
+
+        # Subscribers to monitor system events
+        self.task_status_sub = self.create_subscription(
+            String,
+            '/autonomous_status',
+            self.task_status_callback,
+            10
+        )
+
+        self.speech_sub = self.create_subscription(
+            String,
+            '/speech_to_text',
+            self.speech_received_callback,
+            10
+        )
+
+        self.command_sub = self.create_subscription(
+            String,
+            '/high_level_commands',
+            self.command_received_callback,
+            10
+        )
+
+        # Performance monitoring timer
+        self.monitor_timer = self.create_timer(1.0, self.monitor_performance)
+
+        # Task tracking
+        self.task_start_times = {}
+        self.task_count = 0
+        self.successful_tasks = 0
+
+    def task_status_callback(self, msg):
+        """Monitor task status changes"""
+        try:
+            status_data = json.loads(msg.data)
+            task_state = status_data.get("state", "")
+
+            if task_state == "completed":
+                # Calculate response time for completed tasks
+                task_id = status_data.get("active_task", {}).get("id")
+                if task_id and task_id in self.task_start_times:
+                    response_time = time.time() - self.task_start_times[task_id]
+                    self.response_times.append(response_time)
+
+                    # Publish response time
+                    response_msg = Float32()
+                    response_msg.data = response_time
+                    self.response_time_pub.publish(response_msg)
+
+                    self.successful_tasks += 1
+                    self.task_success_rate.append(1.0)
+
+                    # Remove from tracking
+                    del self.task_start_times[task_id]
+
+                    self.get_logger().info(f"Task completed in {response_time:.3f}s")
+
+            elif task_state == "failed":
+                self.task_success_rate.append(0.0)
+
+        except json.JSONDecodeError:
+            self.get_logger().error("Invalid JSON in task status message")
+
+    def speech_received_callback(self, msg):
+        """Track when speech commands are received"""
+        # Generate a task ID for tracking
+        task_id = f"task_{self.task_count}"
+        self.task_start_times[task_id] = time.time()
+        self.task_count += 1
+
+    def command_received_callback(self, msg):
+        """Track when commands are received"""
+        # Could track command processing time here
+        pass
+
+    def monitor_performance(self):
+        """Monitor and publish system performance metrics"""
+        # Calculate performance metrics
+        avg_response_time = sum(self.response_times) / len(self.response_times) if self.response_times else 0.0
+        success_rate = sum(self.task_success_rate) / len(self.task_success_rate) if self.task_success_rate else 0.0
+
+        # Get system resource usage (simplified)
+        import psutil
+        cpu_percent = psutil.cpu_percent()
+        memory_percent = psutil.virtual_memory().percent
+
+        # Store metrics
+        self.cpu_usage.append(cpu_percent)
+        self.memory_usage.append(memory_percent)
+
+        # Publish metrics
+        cpu_msg = Float32()
+        cpu_msg.data = float(cpu_percent)
+        self.cpu_usage_pub.publish(cpu_msg)
+
+        memory_msg = Float32()
+        memory_msg.data = float(memory_percent)
+        self.memory_usage_pub.publish(memory_msg)
+
+        # Publish system status
+        status_msg = String()
+        status_msg.data = json.dumps({
+            "avg_response_time": avg_response_time,
+            "success_rate": success_rate,
+            "cpu_usage": cpu_percent,
+            "memory_usage": memory_percent,
+            "total_tasks": self.task_count,
+            "successful_tasks": self.successful_tasks,
+            "timestamp": self.get_clock().now().to_msg()
+        })
+        self.system_status_pub.publish(status_msg)
+
+        # Log performance if degrading
+        if avg_response_time > 2.0:  # 2 second threshold
+            self.get_logger().warn(f"High response time detected: {avg_response_time:.3f}s")
+
+        if success_rate < 0.8:  # 80% success rate threshold
+            self.get_logger().warn(f"Low success rate detected: {success_rate:.2f}")
+
+    def get_performance_summary(self) -> Dict[str, float]:
+        """Get current performance summary"""
+        return {
+            "avg_response_time": sum(self.response_times) / len(self.response_times) if self.response_times else 0.0,
+            "success_rate": sum(self.task_success_rate) / len(self.task_success_rate) if self.task_success_rate else 0.0,
+            "cpu_usage": sum(self.cpu_usage) / len(self.cpu_usage) if self.cpu_usage else 0.0,
+            "memory_usage": sum(self.memory_usage) / len(self.memory_usage) if self.memory_usage else 0.0,
+            "total_tasks": self.task_count,
+            "successful_tasks": self.successful_tasks
+        }
+```
+
+## Safety and Error Handling
+
+### Comprehensive Safety System
+
+```python
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String, Bool
+from sensor_msgs.msg import LaserScan, Imu
+from geometry_msgs.msg import Twist
+from builtin_interfaces.msg import Time
+import json
+from enum import Enum
+from dataclasses import dataclass
+from typing import Dict, List, Any
+
+class SafetyLevel(Enum):
+    """Safety levels for different situations"""
+    NORMAL = "normal"
+    CAUTION = "caution"
+    WARNING = "warning"
+    EMERGENCY = "emergency"
+
+@dataclass
+class SafetyViolation:
+    """Represents a safety violation"""
+    level: SafetyLevel
+    description: str
+    timestamp: Time
+    recovery_action: str
+
+class SafetySystem(Node):
+    def __init__(self):
+        super().__init__('safety_system')
+
+        # Safety parameters
+        self.safety_thresholds = {
+            "min_distance_to_obstacle": 0.3,  # meters
+            "max_angular_velocity": 1.0,      # rad/s
+            "max_linear_velocity": 0.5,       # m/s
+            "max_imu_angle": 0.3,            # rad (about 17 degrees)
+            "max_imu_angular_velocity": 2.0   # rad/s
+        }
+
+        # Publishers
+        self.emergency_stop_pub = self.create_publisher(Bool, '/emergency_stop', 10)
+        self.safety_status_pub = self.create_publisher(String, '/safety_status', 10)
+        self.velocity_limit_pub = self.create_publisher(Twist, '/cmd_vel_safety_limited', 10)
+
+        # Subscribers
+        self.scan_sub = self.create_subscription(
+            LaserScan,
+            '/scan',
+            self.scan_callback,
+            10
+        )
+
+        self.imu_sub = self.create_subscription(
+            Imu,
+            '/imu/data',
+            self.imu_callback,
+            10
+        )
+
+        self.cmd_vel_sub = self.create_subscription(
+            Twist,
+            '/cmd_vel',
+            self.cmd_vel_callback,
+            10
+        )
+
+        # Safety state
+        self.current_safety_level = SafetyLevel.NORMAL
+        self.safety_violations = []
+        self.emergency_stop_active = False
+        self.velocity_limits_enabled = True
+
+        # Safety monitoring timer
+        self.safety_timer = self.create_timer(0.1, self.check_safety)
+
+        # Emergency stop timer
+        self.emergency_timer = self.create_timer(0.05, self.publish_emergency_status)
+
+    def scan_callback(self, msg):
+        """Handle laser scan data for obstacle detection"""
+        # Find minimum distance in scan
+        if msg.ranges:
+            min_distance = min([r for r in msg.ranges if 0 < r < msg.range_max], default=float('inf'))
+
+            if min_distance < self.safety_thresholds["min_distance_to_obstacle"]:
+                violation = SafetyViolation(
+                    level=SafetyLevel.WARNING,
+                    description=f"Obstacle detected at {min_distance:.2f}m (threshold: {self.safety_thresholds['min_distance_to_obstacle']}m)",
+                    timestamp=self.get_clock().now().to_msg(),
+                    recovery_action="reduce_speed_or_stop"
+                )
+                self.handle_safety_violation(violation)
+
+    def imu_callback(self, msg):
+        """Handle IMU data for balance and orientation"""
+        # Convert quaternion to roll/pitch angles
+        import math
+        quat = msg.orientation
+        sinr_cosp = 2 * (quat.w * quat.x + quat.y * quat.z)
+        cosr_cosp = 1 - 2 * (quat.x * quat.x + quat.y * quat.y)
+        roll = math.atan2(sinr_cosp, cosr_cosp)
+
+        sinp = 2 * (quat.w * quat.y - quat.z * quat.x)
+        pitch = math.asin(sinp) if abs(sinp) <= 1 else math.copysign(math.pi/2, sinp)
+
+        # Check if robot is tilting too much
+        tilt_angle = max(abs(roll), abs(pitch))
+        if tilt_angle > self.safety_thresholds["max_imu_angle"]:
+            violation = SafetyViolation(
+                level=SafetyLevel.WARNING,
+                description=f"Robot tilt angle {tilt_angle:.2f}rad exceeds threshold {self.safety_thresholds['max_imu_angle']}rad",
+                timestamp=self.get_clock().now().to_msg(),
+                recovery_action="activate balance controller"
+            )
+            self.handle_safety_violation(violation)
+
+        # Check angular velocity
+        ang_vel_magnitude = math.sqrt(
+            msg.angular_velocity.x**2 +
+            msg.angular_velocity.y**2 +
+            msg.angular_velocity.z**2
+        )
+
+        if ang_vel_magnitude > self.safety_thresholds["max_imu_angular_velocity"]:
+            violation = SafetyViolation(
+                level=SafetyLevel.CAUTION,
+                description=f"High angular velocity {ang_vel_magnitude:.2f}rad/s",
+                timestamp=self.get_clock().now().to_msg(),
+                recovery_action="reduce motion commands"
+            )
+            self.handle_safety_violation(violation)
+
+    def cmd_vel_callback(self, msg):
+        """Monitor velocity commands for safety"""
+        linear_speed = math.sqrt(msg.linear.x**2 + msg.linear.y**2 + msg.linear.z**2)
+        angular_speed = math.sqrt(msg.angular.x**2 + msg.angular.y**2 + msg.angular.z**2)
+
+        # Check linear velocity
+        if linear_speed > self.safety_thresholds["max_linear_velocity"]:
+            violation = SafetyViolation(
+                level=SafetyLevel.CAUTION,
+                description=f"Linear velocity {linear_speed:.2f}m/s exceeds threshold {self.safety_thresholds['max_linear_velocity']}m/s",
+                timestamp=self.get_clock().now().to_msg(),
+                recovery_action="limit velocity"
+            )
+            self.handle_safety_violation(violation)
+
+        # Check angular velocity
+        if angular_speed > self.safety_thresholds["max_angular_velocity"]:
+            violation = SafetyViolation(
+                level=SafetyLevel.CAUTION,
+                description=f"Angular velocity {angular_speed:.2f}rad/s exceeds threshold {self.safety_thresholds['max_angular_velocity']}rad/s",
+                timestamp=self.get_clock().now().to_msg(),
+                recovery_action="limit angular velocity"
+            )
+            self.handle_safety_violation(violation)
+
+    def check_safety(self):
+        """Periodic safety checks"""
+        # This could include additional checks like joint limit monitoring,
+        # temperature monitoring, etc.
+
+        # Update safety level based on violations
+        if any(v.level == SafetyLevel.EMERGENCY for v in self.safety_violations[-10:]):  # Check last 10 violations
+            self.current_safety_level = SafetyLevel.EMERGENCY
+        elif any(v.level == SafetyLevel.WARNING for v in self.safety_violations[-10:]):
+            self.current_safety_level = SafetyLevel.WARNING
+        elif any(v.level == SafetyLevel.CAUTION for v in self.safety_violations[-10:]):
+            self.current_safety_level = SafetyLevel.CAUTION
+        else:
+            self.current_safety_level = SafetyLevel.NORMAL
+
+    def handle_safety_violation(self, violation: SafetyViolation):
+        """Handle a safety violation"""
+        self.safety_violations.append(violation)
+
+        # Limit stored violations
+        if len(self.safety_violations) > 100:
+            self.safety_violations = self.safety_violations[-100:]
+
+        # Log violation
+        self.get_logger().warn(f"Safety violation: {violation.description}")
+
+        # Take appropriate action based on severity
+        if violation.level == SafetyLevel.EMERGENCY:
+            self.activate_emergency_stop()
+        elif violation.level == SafetyLevel.WARNING:
+            self.apply_safety_limits()
+        elif violation.level == SafetyLevel.CAUTION:
+            self.log_warning(violation.description)
+
+    def activate_emergency_stop(self):
+        """Activate emergency stop"""
+        self.emergency_stop_active = True
+        self.get_logger().error("EMERGENCY STOP ACTIVATED")
+
+        # Publish emergency stop command
+        stop_msg = Bool()
+        stop_msg.data = True
+        self.emergency_stop_pub.publish(stop_msg)
+
+    def apply_safety_limits(self):
+        """Apply safety velocity limits"""
+        # In a real implementation, this would limit the velocity commands
+        # being sent to the robot
+        pass
+
+    def publish_emergency_status(self):
+        """Publish emergency status periodically"""
+        status_msg = String()
+        status_msg.data = json.dumps({
+            "safety_level": self.current_safety_level.value,
+            "emergency_stop_active": self.emergency_stop_active,
+            "last_violation": self.safety_violations[-1].description if self.safety_violations else None,
+            "timestamp": self.get_clock().now().to_msg()
+        })
+        self.safety_status_pub.publish(status_msg)
+
+    def log_warning(self, message: str):
+        """Log a safety warning"""
+        self.get_logger().warn(f"Safety warning: {message}")
+
+    def reset_emergency_stop(self):
+        """Reset emergency stop"""
+        self.emergency_stop_active = False
+        self.get_logger().info("Emergency stop reset")
+
+        # Publish reset command
+        reset_msg = Bool()
+        reset_msg.data = False
+        self.emergency_stop_pub.publish(reset_msg)
+
+    def get_safety_status(self) -> Dict[str, Any]:
+        """Get current safety status"""
+        return {
+            "safety_level": self.current_safety_level.value,
+            "emergency_stop_active": self.emergency_stop_active,
+            "total_violations": len(self.safety_violations),
+            "recent_violations": [v.description for v in self.safety_violations[-5:]],
+            "velocity_limits_enabled": self.velocity_limits_enabled
+        }
+```
+
+## Demonstration: Complete Autonomous Task
+
+### Integration Demonstration Node
+
+```python
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+import time
+
+class CapstoneDemonstration(Node):
+    def __init__(self):
+        super().__init__('capstone_demonstration')
+
+        # Publishers for the demonstration
+        self.speech_pub = self.create_publisher(String, '/natural_language_commands', 10)
+        self.status_pub = self.create_publisher(String, '/demonstration_status', 10)
+
+        # Demonstration timer
+        self.demo_timer = self.create_timer(10.0, self.run_demonstration)
+
+        self.demo_step = 0
+        self.demo_steps = [
+            "Hello! I am your autonomous humanoid assistant.",
+            "I can understand natural language commands and perform tasks.",
+            "Please tell me to do something, or I will demonstrate a task.",
+            "I will now show you how I can fetch an object.",
+            "Going to the kitchen to find a cup.",
+            "I have located the cup and will now pick it up.",
+            "Returning to the living room.",
+            "I have successfully brought the cup to you!",
+            "Thank you for watching the demonstration."
+        ]
+
+    def run_demonstration(self):
+        """Run the demonstration sequence"""
+        if self.demo_step < len(self.demo_steps):
+            command = self.demo_steps[self.demo_step]
+
+            # Publish the demonstration command
+            command_msg = String()
+            command_msg.data = command
+            self.speech_pub.publish(command_msg)
+
+            self.get_logger().info(f"Demonstration step {self.demo_step + 1}: {command}")
+
+            # Publish status
+            status_msg = String()
+            status_msg.data = f"Step {self.demo_step + 1}: {command}"
+            self.status_pub.publish(status_msg)
+
+            self.demo_step += 1
+        else:
+            # Reset for continuous demonstration
+            self.demo_step = 0
+
+def main(args=None):
+    rclpy.init(args=args)
+
+    # Create all the nodes for the complete system
+    controller = AutonomousHumanoidController()
+    fetch_example = FetchTaskExample()
+    monitor = SystemPerformanceMonitor()
+    safety = SafetySystem()
+    demo = CapstoneDemonstration()
+
+    # Create executor and add all nodes
+    executor = rclpy.executors.MultiThreadedExecutor()
+    executor.add_node(controller)
+    executor.add_node(fetch_example)
+    executor.add_node(monitor)
+    executor.add_node(safety)
+    executor.add_node(demo)
+
+    try:
+        executor.spin()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        executor.shutdown()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+## Summary
+
+The capstone autonomous humanoid project demonstrates the successful integration of all four modules in the Physical AI & Humanoid Robotics curriculum:
+
+1. **Module 1 (ROS 2)**: Provides the communication infrastructure and distributed control system that acts as the robot's nervous system.
+
+2. **Module 2 (Digital Twin)**: Enables development and testing in simulation environments before real-world deployment.
+
+3. **Module 3 (AI-Robot Brain)**: Incorporates advanced perception, navigation, and control algorithms accelerated by NVIDIA Isaac technologies.
+
+4. **Module 4 (VLA)**: Enables natural human-robot interaction through voice commands and autonomous task execution.
+
+The system successfully demonstrates the core capstone objective: an autonomous humanoid robot that can understand voice commands, recognize objects, navigate to locations, and manipulate objects. This integration showcases how each module contributes to a complete, functional robotic system capable of operating in human environments.
+
+The project includes comprehensive safety systems, performance monitoring, and error handling to ensure reliable operation. The modular architecture allows for easy extension and modification, making it suitable for various applications in assistive robotics, industrial automation, and human-robot collaboration.
+
+## References
+
+- ROS 2 Documentation: https://docs.ros.org/en/rolling/
+- Navigation 2: https://navigation.ros.org/
+- Isaac ROS: https://github.com/NVIDIA-ISAAC-ROS
+- Gazebo Simulation: https://gazebosim.org/
+- OpenAI Whisper: https://github.com/openai/whisper
+- MoveIt 2: https://moveit.ros.org/

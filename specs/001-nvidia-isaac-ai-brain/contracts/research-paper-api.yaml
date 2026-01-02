@@ -1,0 +1,85 @@
+# Research Paper API Contract
+
+## Overview
+This contract defines the conceptual API for the AI-Robot Brain research paper, providing structured access to paper sections, case studies, and technical concepts.
+
+## Endpoints
+
+### GET /paper
+**Description**: Retrieve the complete research paper metadata and structure
+**Response**:
+```json
+{
+  "title": "AI-Robot Brain Development using NVIDIA Isaac™",
+  "abstract": "Comprehensive research on AI-driven perception, navigation, and control workflow...",
+  "chapters": [
+    {
+      "number": 1,
+      "title": "Introduction to AI-Robot Brain and Humanoid Simulation",
+      "word_count": 1200,
+      "sections": ["Introduction", "NVIDIA Isaac Overview", "Humanoid Simulation Fundamentals"]
+    },
+    {
+      "number": 2,
+      "title": "Photorealistic Simulation and Synthetic Data Generation with Isaac Sim",
+      "word_count": 1500,
+      "sections": ["Isaac Sim Capabilities", "Photorealistic Rendering", "Synthetic Data Pipeline"]
+    },
+    {
+      "number": 3,
+      "title": "Hardware-Accelerated VSLAM, Navigation, and Bipedal Path Planning",
+      "word_count": 1300,
+      "sections": ["Isaac ROS Integration", "VSLAM Implementation", "Nav2 for Bipedal Robots"]
+    }
+  ],
+  "case_studies": 3,
+  "references": 8,
+  "target_audience": ["robotics engineers", "AI researchers", "simulation developers"],
+  "word_count": 4000
+}
+```
+
+### GET /paper/chapters/{number}
+**Description**: Retrieve a specific chapter by number
+**Parameters**:
+- number: Chapter number (1-3)
+**Response**: Complete chapter content in Markdown format
+
+### GET /paper/case-studies
+**Description**: Retrieve all case studies
+**Response**:
+```json
+{
+  "case_studies": [
+    {
+      "id": 1,
+      "title": "Humanoid Perception in Dynamic Environments",
+      "scenario": "Robot perception in changing environments using Isaac Sim",
+      "technologies": ["Isaac Sim", "Isaac ROS", "VSLAM"],
+      "results": "Demonstrates real-time perception capabilities"
+    },
+    {
+      "id": 2,
+      "title": "Navigation with Obstacle Avoidance",
+      "scenario": "Bipedal navigation using Nav2 and Isaac ROS",
+      "technologies": ["Nav2", "Isaac ROS", "Path Planning"],
+      "results": "Shows effective obstacle avoidance"
+    },
+    {
+      "id": 3,
+      "title": "Perception-Navigation Integration",
+      "scenario": "Complete perception and navigation pipeline",
+      "technologies": ["Isaac Sim", "Isaac ROS", "Nav2"],
+      "results": "End-to-end AI-driven robot control"
+    }
+  ]
+}
+```
+
+### GET /paper/references
+**Description**: Retrieve all references cited in the paper
+**Response**: List of all citations in APA format
+
+### GET /paper/technical-concepts
+**Description**: Retrieve key technical concepts explained in the paper
+**Response**: Dictionary of technical terms with definitions and applications
